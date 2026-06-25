@@ -1,0 +1,65 @@
+target:
+  files:
+    - examples/sorting_network17/src/network.py
+  evolve_regions:
+    - name: construct_network
+      file: examples/sorting_network17/src/network.py
+      marker_start: "# EVOLVE-BLOCK-START"
+      marker_end: "# EVOLVE-BLOCK-END"
+
+objectives:
+  correctness:
+    direction: maximize
+    hard_constraint: true
+    minimum: 1.0
+  size:
+    direction: minimize
+  depth:
+    direction: minimize
+  breaks_known_best:
+    direction: maximize
+
+budget:
+  candidates: 48
+  parallelism: 4
+  max_wall_seconds: 900
+  stop_after_no_improvement: 12
+
+evaluation:
+  public_command: "python examples/sorting_network17/evaluator/public.py --candidate {candidate_dir}"
+  hidden_command: ""
+  final_command: ""
+  repetitions: 1
+  metric_schema_version: 1
+
+safety:
+  network: false
+  source_readonly: true
+  candidate_tmpfs: false
+  max_memory_mb: 512
+  timeout_seconds: 60
+  max_output_bytes: 200000
+
+runtime:
+  output_dir: ".alphaevolve/runs"
+  database: "sqlite"
+  patch_mode: "search_replace"
+  model_adapter: "openai-compatible"
+
+generation:
+  mode: "api"
+  batch_size: 12
+  max_prompt_chars: 1000000
+  api:
+    provider: "deepseek"
+    base_url: "https://api.deepseek.com"
+    api_key_env: "DEEPSEEK_API_KEY"
+    model: "deepseek-v4-pro"
+    temperature: 0.9
+    max_tokens: 384000
+    timeout_seconds: 120
+    thinking: "disabled"
+  agent:
+    backend: "codex"
+    prompt_dir: ".alphaevolve/agent-prompts"
+    max_agents: 2

@@ -458,6 +458,38 @@ class RuntimeMvpTests(unittest.TestCase):
             if run_dir.exists():
                 shutil.rmtree(run_dir)
 
+    def test_sorting_network17_baseline_validates_best_known_seed(self) -> None:
+        repo = Path(__file__).resolve().parents[1]
+        run_dir = repo / ".alphaevolve" / "runs" / "unit-sorting17"
+        if run_dir.exists():
+            shutil.rmtree(run_dir)
+        try:
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "aevolve_runtime.cli",
+                    "run",
+                    "--task",
+                    "examples/sorting_network17/task.yaml",
+                    "--run-id",
+                    "unit-sorting17",
+                ],
+                cwd=repo,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            status = json.loads((run_dir / "status.json").read_text(encoding="utf-8"))
+            self.assertEqual(status["best_candidate"], "c-000000-baseline")
+            self.assertEqual(status["best_metrics"]["size"], 71.0)
+            self.assertEqual(status["best_metrics"]["depth"], 12.0)
+            self.assertEqual(status["best_metrics"]["correctness"], 1.0)
+        finally:
+            if run_dir.exists():
+                shutil.rmtree(run_dir)
+
     def _write_project(self, root: Path, evaluator_body: str = "default") -> None:
         if root.exists():
             shutil.rmtree(root)
