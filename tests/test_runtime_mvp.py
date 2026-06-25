@@ -145,7 +145,7 @@ class RuntimeMvpTests(unittest.TestCase):
                 + "generation:\n"
                 + "  mode: api\n"
                 + "  batch_size: 3\n"
-                + "  max_prompt_chars: 20000\n"
+                + "  max_prompt_chars: 1000000\n"
                 + "  api:\n"
                 + "    provider: deepseek\n"
                 + "    base_url: \"https://api.deepseek.com\"\n"
@@ -157,7 +157,9 @@ class RuntimeMvpTests(unittest.TestCase):
             task = load_task(root / "task.yaml", root=root)
             self.assertEqual(task.generation.mode, "api")
             self.assertEqual(task.generation.batch_size, 3)
+            self.assertEqual(task.generation.max_prompt_chars, 1_000_000)
             self.assertEqual(task.generation.api.model, "deepseek-v4-flash")
+            self.assertEqual(task.generation.api.max_tokens, 384_000)
 
             bundle = build_mutation_prompt(task, candidate_index=7)
             self.assertIn("SEARCH/REPLACE", bundle.system)
@@ -230,6 +232,7 @@ class RuntimeMvpTests(unittest.TestCase):
             first_request = _FakeCompletionHandler.requests[0]
             self.assertEqual(first_request["authorization"], "Bearer unit-secret")
             self.assertEqual(first_request["body"]["model"], "deepseek-v4-flash")
+            self.assertEqual(first_request["body"]["max_tokens"], 384_000)
             self.assertEqual(first_request["body"]["thinking"]["type"], "disabled")
             self.assertIn("src/solver.py", first_request["body"]["messages"][1]["content"])
 

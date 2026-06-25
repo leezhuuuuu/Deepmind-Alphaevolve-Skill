@@ -64,20 +64,22 @@ runtime:
 generation:
   mode: "api"
   batch_size: 8
-  max_prompt_chars: 60000
+  max_prompt_chars: 1000000
   api:
     provider: "deepseek"
     base_url: "https://api.deepseek.com"
     api_key_env: "DEEPSEEK_API_KEY"
     model: "deepseek-v4-flash"
     temperature: 0.7
-    max_tokens: 4096
+    max_tokens: 384000
     thinking: "disabled"
   agent:
     backend: "codex"
     prompt_dir: ".alphaevolve/agent-prompts"
     max_agents: 2
 ```
+
+The DeepSeek defaults mirror the current documented `deepseek-v4-flash` / `deepseek-v4-pro` limits: 1M context length and 384K maximum output.
 
 ## Authoring Rules
 

@@ -13,6 +13,10 @@ class TaskSpecError(ValueError):
     """Raised when a TaskSpec is missing required structure."""
 
 
+DEEPSEEK_CONTEXT_TOKENS = 1_000_000
+DEEPSEEK_MAX_OUTPUT_TOKENS = 384_000
+
+
 @dataclass(frozen=True)
 class EvolveRegion:
     name: str
@@ -79,7 +83,7 @@ class GenerationApiConfig:
     api_key_env: str = "DEEPSEEK_API_KEY"
     model: str = "deepseek-v4-flash"
     temperature: float = 0.7
-    max_tokens: int = 4096
+    max_tokens: int = DEEPSEEK_MAX_OUTPUT_TOKENS
     timeout_seconds: int = 90
     thinking: str = "disabled"
     reasoning_effort: str | None = None
@@ -96,7 +100,7 @@ class GenerationAgentConfig:
 class GenerationConfig:
     mode: str = "patch_dir"
     batch_size: int = 1
-    max_prompt_chars: int = 60_000
+    max_prompt_chars: int = DEEPSEEK_CONTEXT_TOKENS
     api: GenerationApiConfig = field(default_factory=GenerationApiConfig)
     agent: GenerationAgentConfig = field(default_factory=GenerationAgentConfig)
 
@@ -311,7 +315,7 @@ def _parse_generation(data: Any) -> GenerationConfig:
         mode=mode,
         batch_size=_positive_int_or_default(generation_data.get("batch_size"), 1, "generation.batch_size"),
         max_prompt_chars=_positive_int_or_default(
-            generation_data.get("max_prompt_chars"), 60_000, "generation.max_prompt_chars"
+            generation_data.get("max_prompt_chars"), DEEPSEEK_CONTEXT_TOKENS, "generation.max_prompt_chars"
         ),
         api=GenerationApiConfig(
             provider=provider,
@@ -319,7 +323,9 @@ def _parse_generation(data: Any) -> GenerationConfig:
             api_key_env=api_key_env,
             model=model,
             temperature=_float_or_default(api_data.get("temperature"), 0.7, "generation.api.temperature"),
-            max_tokens=_positive_int_or_default(api_data.get("max_tokens"), 4096, "generation.api.max_tokens"),
+            max_tokens=_positive_int_or_default(
+                api_data.get("max_tokens"), DEEPSEEK_MAX_OUTPUT_TOKENS, "generation.api.max_tokens"
+            ),
             timeout_seconds=_positive_int_or_default(
                 api_data.get("timeout_seconds"), 90, "generation.api.timeout_seconds"
             ),
