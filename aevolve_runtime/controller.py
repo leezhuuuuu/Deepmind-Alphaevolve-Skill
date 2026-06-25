@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from dataclasses import replace
 import json
 from pathlib import Path
+import re
 import shutil
 import time
 import uuid
@@ -32,11 +33,22 @@ def create_run_id() -> str:
     return f"{time.strftime('run-%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
 
 
+def validate_run_id(run_id: str) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", run_id):
+        raise ValueError("run_id must be a safe basename containing only letters, numbers, dot, underscore, or dash")
+    if run_id in {".", ".."}:
+        raise ValueError("run_id must not be . or ..")
+    return run_id
+
+
 def run_experiment(task_path: Path, patch_paths: list[Path] | None = None, run_id: str | None = None) -> Path:
     task = load_task(task_path)
     patch_paths = patch_paths or []
-    run_id = run_id or create_run_id()
-    run_dir = (task.root / task.runtime.output_dir / run_id).resolve()
+    run_id = validate_run_id(run_id or create_run_id())
+    runs_root = (task.root / task.runtime.output_dir).resolve()
+    _ensure_under(runs_root, task.root.resolve(), "runtime output directory")
+    run_dir = (runs_root / run_id).resolve()
+    _ensure_under(run_dir, runs_root, "run directory")
     if run_dir.exists() and any(run_dir.iterdir()):
         raise FileExistsError(f"run directory already exists: {run_dir}")
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -268,3 +280,10 @@ def _write_report(run_dir: Path, db: ProgramDB, task: TaskSpec, best_candidate: 
         "but it does not provide container-level network, memory, process, or filesystem isolation."
     )
     (report_dir / "report.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+def _ensure_under(path: Path, root: Path, label: str) -> None:
+    try:
+        path.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"{label} must stay under {root}: {path}") from exc

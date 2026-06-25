@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 from typing import Any
-from urllib import error, request
+from urllib import error, parse, request
 
 from .base import GeneratedPatch, PatchGenerator
 from aevolve_runtime.prompt_sampler import build_mutation_prompt
@@ -15,10 +15,19 @@ from aevolve_runtime.task_spec import GenerationApiConfig, TaskSpec
 class OpenAICompatibleGenerator(PatchGenerator):
     """Generate SEARCH/REPLACE patches through an OpenAI-compatible endpoint."""
 
+    def __init__(self, *, allow_custom_api_base: bool = False, allowed_api_key_envs: set[str] | None = None):
+        self.allow_custom_api_base = allow_custom_api_base
+        self.allowed_api_key_envs = allowed_api_key_envs or set()
+
     def generate(self, task: TaskSpec, *, count: int) -> list[GeneratedPatch]:
         if count <= 0:
             return []
         api = task.generation.api
+        _validate_api_target(
+            api,
+            allow_custom_api_base=self.allow_custom_api_base,
+            extra_allowed_envs=self.allowed_api_key_envs,
+        )
         api_key = os.environ.get(api.api_key_env)
         if not api_key:
             raise RuntimeError(f"missing API key environment variable: {api.api_key_env}")
@@ -80,6 +89,61 @@ def _chat_completion(api: GenerationApiConfig, api_key: str, messages: list[dict
         raise RuntimeError("LLM API returned invalid JSON") from exc
 
 
+def _validate_api_target(
+    api: GenerationApiConfig,
+    *,
+    allow_custom_api_base: bool,
+    extra_allowed_envs: set[str],
+) -> None:
+    parsed = parse.urlparse(api.base_url)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme not in {"http", "https"} or not host:
+        raise RuntimeError("generation.api.base_url must be an HTTP(S) URL with a hostname")
+    loopback = _is_loopback_host(host)
+    if parsed.scheme == "http" and not loopback:
+        raise RuntimeError("generation.api.base_url may use http only for loopback endpoints")
+
+    provider = api.provider.lower()
+    allowed_hosts = _known_provider_hosts().get(provider, set())
+    if not loopback and host not in allowed_hosts and not allow_custom_api_base:
+        allowed = ", ".join(sorted(allowed_hosts)) or "loopback endpoints"
+        raise RuntimeError(
+            f"generation.api.base_url host {host!r} is not trusted for provider {api.provider!r}; "
+            f"expected {allowed} or pass --allow-custom-api-base"
+        )
+
+    if not loopback and not _is_allowed_api_key_env(api, extra_allowed_envs):
+        raise RuntimeError(
+            f"generation.api.api_key_env {api.api_key_env!r} is not allowed for external API calls; "
+            "use the provider default, an AEVOLVE_*_API_KEY variable, or pass --allow-api-key-env"
+        )
+
+
+def _known_provider_hosts() -> dict[str, set[str]]:
+    return {
+        "anthropic": {"api.anthropic.com"},
+        "deepseek": {"api.deepseek.com"},
+        "openai": {"api.openai.com"},
+    }
+
+
+def _is_allowed_api_key_env(api: GenerationApiConfig, extra_allowed_envs: set[str]) -> bool:
+    if api.api_key_env in extra_allowed_envs:
+        return True
+    provider_defaults = {
+        "anthropic": {"ANTHROPIC_API_KEY"},
+        "deepseek": {"DEEPSEEK_API_KEY"},
+        "openai": {"OPENAI_API_KEY"},
+    }
+    if api.api_key_env in provider_defaults.get(api.provider.lower(), set()):
+        return True
+    return api.api_key_env.startswith("AEVOLVE_") and api.api_key_env.endswith("_API_KEY")
+
+
+def _is_loopback_host(host: str) -> bool:
+    return host in {"localhost", "127.0.0.1", "::1"}
+
+
 def _extract_message_content(response: dict[str, Any]) -> str:
     choices = response.get("choices")
     if not isinstance(choices, list) or not choices:
@@ -108,7 +172,7 @@ def _extract_patch_text(content: str, task: TaskSpec) -> str:
         return coerced or stripped
 
     start = first_search
-    if first_search > 0 and lines[first_search - 1].strip().startswith("FILE: "):
+    if first_search > 0 and _file_marker(lines[first_search - 1]):
         start = first_search - 1
     return "\n".join(lines[start : last_replace + 1]).strip()
 
@@ -141,11 +205,19 @@ def _coerce_code_to_replace_patch(content: str, task: TaskSpec) -> str | None:
 def _split_file_payload(content: str, task: TaskSpec) -> tuple[str, str]:
     default_file = task.target.files[0]
     lines = content.splitlines()
-    if lines and lines[0].strip().startswith("FILE: "):
-        file_name = lines[0].split(":", 1)[1].strip()
+    if lines and (file_name := _file_marker(lines[0])):
         if file_name in task.target.files:
             return file_name, "\n".join(lines[1:]).strip()
     return default_file, content
+
+
+def _file_marker(line: str) -> str | None:
+    stripped = line.strip()
+    prefixes = ["FILE:", "### FILE:", "*** File:"]
+    for prefix in prefixes:
+        if stripped.startswith(prefix):
+            return stripped[len(prefix) :].strip() or None
+    return None
 
 
 def _extract_code_payload(content: str) -> str:

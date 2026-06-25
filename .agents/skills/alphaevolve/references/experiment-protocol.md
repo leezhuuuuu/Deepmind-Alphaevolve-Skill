@@ -54,6 +54,7 @@ For MVP runs, prefer:
 
 - Local patch files passed through `--patch` or `--patch-dir` before enabling live model generation.
 - API-generated patches through `run --generate N` only after the user approves model spend and provides the key through the configured environment variable.
+- Custom external OpenAI-compatible endpoints only with explicit `--allow-custom-api-base` and a scoped `--allow-api-key-env` value.
 - Codex/Claude worker patches through `agent-prompts --count N`; workers must return patch text rather than editing the repository directly.
 - `top-k` elite retention.
 - Diversity sampling across metric profiles and changed files.

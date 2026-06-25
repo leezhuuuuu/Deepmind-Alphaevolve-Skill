@@ -160,8 +160,7 @@ def load_task(path: str | Path, root: Path | None = None) -> TaskSpec:
         raise TaskSpecError("target.files must be a non-empty list of strings")
     for file_name in files:
         _validate_relative_path(file_name, "target file")
-        if not (task_root / file_name).exists():
-            raise TaskSpecError(f"target file does not exist: {file_name}")
+        _validate_existing_file_under_root(task_root, file_name, "target file")
 
     regions: list[EvolveRegion] = []
     for item in target_data.get("evolve_regions") or []:
@@ -374,3 +373,19 @@ def _validate_relative_path(value: str, label: str) -> None:
     path = Path(value)
     if path.is_absolute() or ".." in path.parts:
         raise TaskSpecError(f"{label} must be a safe relative path: {value}")
+
+
+def _validate_existing_file_under_root(root: Path, value: str, label: str) -> None:
+    path = root / value
+    if path.is_symlink():
+        raise TaskSpecError(f"{label} must not be a symlink: {value}")
+    if not path.exists():
+        raise TaskSpecError(f"{label} does not exist: {value}")
+    if not path.is_file():
+        raise TaskSpecError(f"{label} must be a regular file: {value}")
+    resolved_root = root.resolve()
+    resolved_path = path.resolve()
+    try:
+        resolved_path.relative_to(resolved_root)
+    except ValueError as exc:
+        raise TaskSpecError(f"{label} must stay under repository root: {value}") from exc

@@ -113,6 +113,9 @@ def _run_once(command: str, candidate_dir: Path, safety: Safety) -> tuple[dict[s
     parsed.setdefault("timing", {})
     parsed["timing"]["runtime_seconds_observed"] = time.perf_counter() - started
     parsed["timing"]["returncode"] = completed.returncode
+    if completed.returncode != 0:
+        message = stderr.strip() or "evaluator returned non-zero status after emitting JSON"
+        return parsed, f"evaluator exited {completed.returncode}: {message}"
     return parsed, None
 
 

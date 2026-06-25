@@ -28,6 +28,7 @@ Ask the user before:
 - Enabling network.
 - Increasing file-system access outside `.alphaevolve/`.
 - Passing credentials or private data into evaluator workers.
+- Sending API credentials to custom model endpoints outside the runtime's default provider allowlist.
 - Running long or costly experiments.
 - Applying a champion patch to source files.
 
@@ -42,6 +43,16 @@ Before evaluating candidates in a weak sandbox, scan for:
 - Test discovery tricks.
 
 Reject or quarantine suspicious candidates. Do not feed hidden-test details back into mutation prompts.
+
+## API Credential Boundary
+
+TaskSpec files are experiment inputs, not trusted authority for secret routing. Default runtime behavior should:
+
+- Keep generated patches, prompts, reports, and databases under `.alphaevolve/`.
+- Allow HTTP model endpoints only for loopback development servers.
+- Allow external model calls only to known provider hosts unless the launch command explicitly enables a custom API base.
+- Send external API calls only with provider-default key names or deliberately scoped variables such as `AEVOLVE_*_API_KEY`.
+- Never expose API keys, hidden tests, or host credentials to candidate worktrees or agent prompt files.
 
 ## Final Champion Review
 

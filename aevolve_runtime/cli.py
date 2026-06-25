@@ -8,7 +8,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from .controller import create_run_id, run_experiment
+from .controller import create_run_id, run_experiment, validate_run_id
 from .generators import OpenAICompatibleGenerator, write_agent_prompts, write_generated_patches
 from .program_db import ProgramDB
 from .task_spec import TaskSpecError, load_task, repo_root
@@ -26,17 +26,23 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--patch", action="append", default=[], help="Candidate SEARCH/REPLACE patch file")
     run_parser.add_argument("--patch-dir", default=None, help="Directory of .patch/.diff/.txt candidate patches")
     run_parser.add_argument("--generate", type=int, default=0, help="Generate this many API candidates before running")
+    run_parser.add_argument("--allow-custom-api-base", action="store_true")
+    run_parser.add_argument("--allow-api-key-env", action="append", default=[])
     run_parser.add_argument("--run-id", default=None)
 
     generate_parser = subparsers.add_parser("generate", help="Generate API candidate patches without evaluation")
     generate_parser.add_argument("--task", required=True)
     generate_parser.add_argument("--count", type=int, default=None)
     generate_parser.add_argument("--out", default=None)
+    generate_parser.add_argument("--allow-custom-api-base", action="store_true")
+    generate_parser.add_argument("--allow-api-key-env", action="append", default=[])
+    generate_parser.add_argument("--allow-outside-alphaevolve", action="store_true")
 
     agent_parser = subparsers.add_parser("agent-prompts", help="Write prompts for Codex/Claude worker agents")
     agent_parser.add_argument("--task", required=True)
     agent_parser.add_argument("--count", type=int, default=None)
     agent_parser.add_argument("--out", default=None)
+    agent_parser.add_argument("--allow-outside-alphaevolve", action="store_true")
 
     status_parser = subparsers.add_parser("status", help="Print run status")
     status_parser.add_argument("--run-dir", default=None)
@@ -58,9 +64,17 @@ def main(argv: list[str] | None = None) -> int:
             run_id = args.run_id
             if args.generate:
                 task = load_task(args.task)
-                run_id = run_id or create_run_id()
+                run_id = validate_run_id(run_id or create_run_id())
                 output_dir = task.root / ".alphaevolve" / "generated" / run_id
-                patch_paths.extend(_generate_patch_paths(task, count=args.generate, output_dir=output_dir))
+                patch_paths.extend(
+                    _generate_patch_paths(
+                        task,
+                        count=args.generate,
+                        output_dir=output_dir,
+                        allow_custom_api_base=args.allow_custom_api_base,
+                        allowed_api_key_envs=set(args.allow_api_key_env),
+                    )
+                )
             run_dir = run_experiment(Path(args.task), patch_paths=patch_paths, run_id=run_id)
             print(f"Run complete: {run_dir}")
             print((run_dir / "status.json").read_text(encoding="utf-8"))
@@ -68,8 +82,19 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "generate":
             task = load_task(args.task)
             count = args.count or task.generation.batch_size
-            output_dir = Path(args.out).resolve() if args.out else task.root / ".alphaevolve" / "generated" / create_run_id()
-            patch_paths = _generate_patch_paths(task, count=count, output_dir=output_dir)
+            output_dir = _resolve_output_dir(
+                task,
+                args.out,
+                default=task.root / ".alphaevolve" / "generated" / create_run_id(),
+                allow_outside=args.allow_outside_alphaevolve,
+            )
+            patch_paths = _generate_patch_paths(
+                task,
+                count=count,
+                output_dir=output_dir,
+                allow_custom_api_base=args.allow_custom_api_base,
+                allowed_api_key_envs=set(args.allow_api_key_env),
+            )
             print(f"Generated {len(patch_paths)} patch(es): {output_dir}")
             for path in patch_paths:
                 print(path)
@@ -77,8 +102,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "agent-prompts":
             task = load_task(args.task)
             count = args.count or task.generation.agent.max_agents
-            output_dir = (
-                Path(args.out).resolve() if args.out else task.root / task.generation.agent.prompt_dir / create_run_id()
+            output_dir = _resolve_output_dir(
+                task,
+                args.out,
+                default=task.root / task.generation.agent.prompt_dir / create_run_id(),
+                allow_outside=args.allow_outside_alphaevolve,
             )
             prompt_paths = write_agent_prompts(task, count=count, output_dir=output_dir)
             print(f"Wrote {len(prompt_paths)} agent prompt(s): {output_dir}")
@@ -108,13 +136,39 @@ def _patches_from_dir(path: Path) -> list[Path]:
     )
 
 
-def _generate_patch_paths(task, *, count: int, output_dir: Path) -> list[Path]:
+def _generate_patch_paths(
+    task,
+    *,
+    count: int,
+    output_dir: Path,
+    allow_custom_api_base: bool = False,
+    allowed_api_key_envs: set[str] | None = None,
+) -> list[Path]:
     if count <= 0:
         raise ValueError("--generate/--count must be positive")
     if task.generation.mode not in {"api", "hybrid"}:
         raise RuntimeError("TaskSpec generation.mode must be api or hybrid for API generation")
-    patches = OpenAICompatibleGenerator().generate(task, count=count)
+    patches = OpenAICompatibleGenerator(
+        allow_custom_api_base=allow_custom_api_base,
+        allowed_api_key_envs=allowed_api_key_envs,
+    ).generate(task, count=count)
     return write_generated_patches(patches, output_dir)
+
+
+def _resolve_output_dir(task, out_arg: str | None, *, default: Path, allow_outside: bool) -> Path:
+    output_dir = Path(out_arg) if out_arg else default
+    if not output_dir.is_absolute():
+        output_dir = task.root / output_dir
+    output_dir = output_dir.resolve()
+    alpha_root = (task.root / ".alphaevolve").resolve()
+    if not allow_outside:
+        try:
+            output_dir.relative_to(alpha_root)
+        except ValueError as exc:
+            raise RuntimeError(
+                f"output directory must stay under {alpha_root}; pass --allow-outside-alphaevolve to override"
+            ) from exc
+    return output_dir
 
 
 def _latest_run_dir() -> Path | None:

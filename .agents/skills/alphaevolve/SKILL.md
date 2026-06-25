@@ -87,6 +87,16 @@ Use bundled assets:
    python3 -m aevolve_runtime.cli run --task .alphaevolve/task.yaml --generate 8
    ```
 
+   By default, API generation only sends keys to known provider hosts or loopback endpoints, and generated output directories must stay under `.alphaevolve/`. For a user-approved custom OpenAI-compatible endpoint, require an explicit command-line override:
+
+   ```bash
+   python3 -m aevolve_runtime.cli generate \
+     --task .alphaevolve/task.yaml \
+     --count 4 \
+     --allow-custom-api-base \
+     --allow-api-key-env AEVOLVE_CUSTOM_API_KEY
+   ```
+
    For Codex or Claude Code worker generation, first create prompt files:
 
    ```bash

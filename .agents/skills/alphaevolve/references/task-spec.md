@@ -82,6 +82,7 @@ generation:
 ## Authoring Rules
 
 - Prefer explicit evolve regions over whole-repo mutation.
+- Target files must be regular files under the repository root; do not use symlinks as target files.
 - Keep hidden commands out of candidate-readable directories when possible.
 - Use `{candidate_dir}` as the placeholder for the sandboxed candidate checkout.
 - Separate correctness from performance metrics.
@@ -98,4 +99,5 @@ generation:
 - Budget values are finite and small enough for the user's stated intent.
 - Runtime output paths are under `.alphaevolve/` unless the user explicitly approves another location.
 - API keys are referenced by environment variable name only; never write credentials into TaskSpec, prompt files, reports, commits, or candidate worktrees.
+- Treat API `base_url` and `api_key_env` as untrusted TaskSpec input. The runtime should send secrets only to known provider hosts or loopback by default; custom external endpoints require an explicit launch flag and a deliberately named key such as `AEVOLVE_CUSTOM_API_KEY`.
 - Use `generation.mode: agent` or `hybrid` when Codex/Claude worker prompts are part of the candidate generation plan.

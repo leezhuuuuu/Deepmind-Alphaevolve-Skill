@@ -17,7 +17,7 @@ from aevolve_runtime.generators.openai_compatible import OpenAICompatibleGenerat
 from aevolve_runtime.program_db import ProgramDB
 from aevolve_runtime.controller import run_experiment
 from aevolve_runtime.patch_engine import apply_replacements, parse_patch
-from aevolve_runtime.prompt_sampler import build_mutation_prompt
+from aevolve_runtime.prompt_sampler import build_mutation_prompt, _truncate
 from aevolve_runtime.task_spec import Evaluation, Safety, TaskSpecError, load_task
 
 
@@ -119,6 +119,22 @@ class RuntimeMvpTests(unittest.TestCase):
             with self.assertRaises(TaskSpecError):
                 load_task(root / "task.yaml", root=root)
 
+            self._write_project(root)
+            outside = root.parent / "outside-secret.py"
+            outside.write_text("SECRET = True\n", encoding="utf-8")
+            try:
+                (root / "src" / "solver.py").unlink()
+                (root / "src" / "solver.py").symlink_to(outside)
+                with self.assertRaises(TaskSpecError):
+                    load_task(root / "task.yaml", root=root)
+            finally:
+                if outside.exists():
+                    outside.unlink()
+
+            self._write_project(root)
+            with self.assertRaises(ValueError):
+                run_experiment(root / "task.yaml", run_id="../escape")
+
     def test_generation_config_prompt_and_patch_writer(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -164,6 +180,8 @@ class RuntimeMvpTests(unittest.TestCase):
             self.assertIn("Candidate Worker 1", prompt_text)
             self.assertIn("Return only the patch text", prompt_text)
             self.assertIn("src/solver.py", prompt_text)
+            self.assertLessEqual(len(_truncate("x" * 100, 1)), 1)
+            self.assertEqual(_truncate("x" * 100, 0), "")
 
     def test_openai_compatible_generator_uses_configured_endpoint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -215,7 +233,73 @@ class RuntimeMvpTests(unittest.TestCase):
             self.assertEqual(first_request["body"]["thinking"]["type"], "disabled")
             self.assertIn("src/solver.py", first_request["body"]["messages"][1]["content"])
 
-    def test_evaluator_handles_spaces_and_invalid_json_exit(self) -> None:
+    def test_openai_compatible_generator_rejects_untrusted_external_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_project(root)
+            task_text = (root / "task.yaml").read_text(encoding="utf-8")
+            (root / "task.yaml").write_text(
+                task_text
+                + "generation:\n"
+                + "  mode: api\n"
+                + "  api:\n"
+                + "    provider: deepseek\n"
+                + "    base_url: \"https://evil.example.com\"\n"
+                + "    api_key_env: GITHUB_TOKEN\n"
+                + "    model: deepseek-v4-flash\n",
+                encoding="utf-8",
+            )
+            os.environ["GITHUB_TOKEN"] = "unit-secret"
+            try:
+                task = load_task(root / "task.yaml", root=root)
+                with self.assertRaisesRegex(RuntimeError, "not trusted|not allowed"):
+                    OpenAICompatibleGenerator().generate(task, count=1)
+            finally:
+                os.environ.pop("GITHUB_TOKEN", None)
+
+    def test_openai_compatible_generator_preserves_supported_file_markers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_project(root)
+            _FakeCompletionHandler.response_content = (
+                "### FILE: src/solver.py\n"
+                "<<<<<<< SEARCH\n"
+                "def solve():\n"
+                "    return 1\n"
+                "=======\n"
+                "def solve():\n"
+                "    return 2\n"
+                ">>>>>>> REPLACE\n"
+            )
+            server = HTTPServer(("127.0.0.1", 0), _FakeCompletionHandler)
+            _FakeCompletionHandler.requests = []
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                task_text = (root / "task.yaml").read_text(encoding="utf-8")
+                (root / "task.yaml").write_text(
+                    task_text
+                    + "generation:\n"
+                    + "  mode: api\n"
+                    + "  api:\n"
+                    + f"    base_url: \"http://127.0.0.1:{server.server_port}\"\n"
+                    + "    api_key_env: FAKE_DEEPSEEK_KEY\n"
+                    + "    model: deepseek-v4-flash\n",
+                    encoding="utf-8",
+                )
+                os.environ["FAKE_DEEPSEEK_KEY"] = "unit-secret"
+                try:
+                    task = load_task(root / "task.yaml", root=root)
+                    patch = OpenAICompatibleGenerator().generate(task, count=1)[0].patch_text
+                finally:
+                    os.environ.pop("FAKE_DEEPSEEK_KEY", None)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+            self.assertTrue(patch.startswith("### FILE: src/solver.py"))
+
+    def test_evaluator_handles_spaces_and_fails_closed_on_nonzero_json_exit(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aevolve space ") as tmp:
             root = Path(tmp)
             candidate = root / "candidate dir"
@@ -237,8 +321,8 @@ class RuntimeMvpTests(unittest.TestCase):
                 safety=Safety(timeout_seconds=5),
             )
             self.assertFalse(result.valid)
-            self.assertEqual(result.metrics["score"], 0.0)
-            self.assertIsNone(result.error)
+            self.assertEqual(result.metrics, {})
+            self.assertIn("evaluator exited 1", result.error or "")
 
     def test_example_task_runs_through_cli(self) -> None:
         repo = Path(__file__).resolve().parents[1]
@@ -271,6 +355,30 @@ class RuntimeMvpTests(unittest.TestCase):
         finally:
             if run_dir.exists():
                 shutil.rmtree(run_dir)
+
+    def test_cli_rejects_output_outside_alphaevolve_by_default(self) -> None:
+        repo = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "aevolve_runtime.cli",
+                    "agent-prompts",
+                    "--task",
+                    "examples/toy_solver/task.yaml",
+                    "--count",
+                    "1",
+                    "--out",
+                    tmp,
+                ],
+                cwd=repo,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn("output directory must stay under", completed.stderr)
 
     def test_bin_packing_example_selects_known_improvement(self) -> None:
         repo = Path(__file__).resolve().parents[1]

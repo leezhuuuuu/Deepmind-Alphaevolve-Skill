@@ -143,7 +143,12 @@ def _truncate(value: str, max_chars: int) -> str:
     if len(value) <= max_chars:
         return value
     marker = "\n\n[Prompt truncated to fit max_prompt_chars]\n\n"
+    if max_chars <= 0:
+        return ""
+    if max_chars <= len(marker):
+        return value[:max_chars]
     keep = max(0, max_chars - len(marker))
     head = keep // 2
     tail = keep - head
-    return f"{value[:head]}{marker}{value[-tail:]}"
+    suffix = value[-tail:] if tail else ""
+    return f"{value[:head]}{marker}{suffix}"
