@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
 from aevolve_runtime.evaluator import evaluate_candidate
 from aevolve_runtime.generators import GeneratedPatch, write_generated_patches
+from aevolve_runtime.generators.openai_compatible import OpenAICompatibleGenerator
 from aevolve_runtime.program_db import ProgramDB
 from aevolve_runtime.controller import run_experiment
 from aevolve_runtime.patch_engine import apply_replacements, parse_patch
@@ -154,6 +158,48 @@ class RuntimeMvpTests(unittest.TestCase):
             self.assertTrue(patch_paths[0].exists())
             self.assertTrue((root / ".alphaevolve" / "generated" / "unit" / "manifest.json").exists())
 
+    def test_openai_compatible_generator_uses_configured_endpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_project(root)
+            server = HTTPServer(("127.0.0.1", 0), _FakeCompletionHandler)
+            _FakeCompletionHandler.requests = []
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                task_text = (root / "task.yaml").read_text(encoding="utf-8")
+                (root / "task.yaml").write_text(
+                    task_text
+                    + "generation:\n"
+                    + "  mode: api\n"
+                    + "  api:\n"
+                    + f"    base_url: \"http://127.0.0.1:{server.server_port}\"\n"
+                    + "    api_key_env: FAKE_DEEPSEEK_KEY\n"
+                    + "    model: deepseek-v4-flash\n"
+                    + "    thinking: disabled\n",
+                    encoding="utf-8",
+                )
+                os.environ["FAKE_DEEPSEEK_KEY"] = "unit-secret"
+                try:
+                    task = load_task(root / "task.yaml", root=root)
+                    patches = OpenAICompatibleGenerator().generate(task, count=2)
+                finally:
+                    os.environ.pop("FAKE_DEEPSEEK_KEY", None)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+            self.assertEqual(len(patches), 2)
+            self.assertTrue(patches[0].patch_text.startswith("<<<<<<< SEARCH"))
+            self.assertIn("return 2", patches[0].patch_text)
+            self.assertEqual(len(_FakeCompletionHandler.requests), 2)
+            first_request = _FakeCompletionHandler.requests[0]
+            self.assertEqual(first_request["authorization"], "Bearer unit-secret")
+            self.assertEqual(first_request["body"]["model"], "deepseek-v4-flash")
+            self.assertEqual(first_request["body"]["thinking"]["type"], "disabled")
+            self.assertIn("src/solver.py", first_request["body"]["messages"][1]["content"])
+
     def test_evaluator_handles_spaces_and_invalid_json_exit(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aevolve space ") as tmp:
             root = Path(tmp)
@@ -277,6 +323,49 @@ class RuntimeMvpTests(unittest.TestCase):
             "  model_adapter: \"local\"\n",
             encoding="utf-8",
         )
+
+
+class _FakeCompletionHandler(BaseHTTPRequestHandler):
+    requests: list[dict] = []
+
+    def do_POST(self) -> None:
+        length = int(self.headers.get("Content-Length", "0"))
+        body = json.loads(self.rfile.read(length).decode("utf-8"))
+        self.__class__.requests.append(
+            {
+                "path": self.path,
+                "authorization": self.headers.get("Authorization"),
+                "body": body,
+            }
+        )
+        response = {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            "```text\n"
+                            "<<<<<<< SEARCH\n"
+                            "def solve():\n"
+                            "    return 1\n"
+                            "=======\n"
+                            "def solve():\n"
+                            "    return 2\n"
+                            ">>>>>>> REPLACE\n"
+                            "```"
+                        )
+                    }
+                }
+            ]
+        }
+        payload = json.dumps(response).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def log_message(self, format: str, *args) -> None:
+        return
 
 
 if __name__ == "__main__":

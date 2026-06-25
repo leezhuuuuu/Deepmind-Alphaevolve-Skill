@@ -8,7 +8,8 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from .controller import run_experiment
+from .controller import create_run_id, run_experiment
+from .generators import OpenAICompatibleGenerator, write_generated_patches
 from .program_db import ProgramDB
 from .task_spec import TaskSpecError, load_task, repo_root
 
@@ -24,7 +25,13 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--task", required=True)
     run_parser.add_argument("--patch", action="append", default=[], help="Candidate SEARCH/REPLACE patch file")
     run_parser.add_argument("--patch-dir", default=None, help="Directory of .patch/.diff/.txt candidate patches")
+    run_parser.add_argument("--generate", type=int, default=0, help="Generate this many API candidates before running")
     run_parser.add_argument("--run-id", default=None)
+
+    generate_parser = subparsers.add_parser("generate", help="Generate API candidate patches without evaluation")
+    generate_parser.add_argument("--task", required=True)
+    generate_parser.add_argument("--count", type=int, default=None)
+    generate_parser.add_argument("--out", default=None)
 
     status_parser = subparsers.add_parser("status", help="Print run status")
     status_parser.add_argument("--run-dir", default=None)
@@ -43,9 +50,24 @@ def main(argv: list[str] | None = None) -> int:
             patch_paths = [Path(item) for item in args.patch]
             if args.patch_dir:
                 patch_paths.extend(_patches_from_dir(Path(args.patch_dir)))
-            run_dir = run_experiment(Path(args.task), patch_paths=patch_paths, run_id=args.run_id)
+            run_id = args.run_id
+            if args.generate:
+                task = load_task(args.task)
+                run_id = run_id or create_run_id()
+                output_dir = task.root / ".alphaevolve" / "generated" / run_id
+                patch_paths.extend(_generate_patch_paths(task, count=args.generate, output_dir=output_dir))
+            run_dir = run_experiment(Path(args.task), patch_paths=patch_paths, run_id=run_id)
             print(f"Run complete: {run_dir}")
             print((run_dir / "status.json").read_text(encoding="utf-8"))
+            return 0
+        if args.command == "generate":
+            task = load_task(args.task)
+            count = args.count or task.generation.batch_size
+            output_dir = Path(args.out).resolve() if args.out else task.root / ".alphaevolve" / "generated" / create_run_id()
+            patch_paths = _generate_patch_paths(task, count=count, output_dir=output_dir)
+            print(f"Generated {len(patch_paths)} patch(es): {output_dir}")
+            for path in patch_paths:
+                print(path)
             return 0
         if args.command == "status":
             return _status(args.run_dir, args.json)
@@ -68,6 +90,15 @@ def _patches_from_dir(path: Path) -> list[Path]:
         for item in path.iterdir()
         if item.is_file() and item.suffix.lower() in {".patch", ".diff", ".txt"}
     )
+
+
+def _generate_patch_paths(task, *, count: int, output_dir: Path) -> list[Path]:
+    if count <= 0:
+        raise ValueError("--generate/--count must be positive")
+    if task.generation.mode not in {"api", "hybrid"}:
+        raise RuntimeError("TaskSpec generation.mode must be api or hybrid for API generation")
+    patches = OpenAICompatibleGenerator().generate(task, count=count)
+    return write_generated_patches(patches, output_dir)
 
 
 def _latest_run_dir() -> Path | None:
