@@ -1,0 +1,7 @@
+<<<<<<< SEARCH
+def choose_value() -> int:
+    return 1
+=======
+def choose_value() -> int:
+    return 3
+>>>>>>> REPLACE

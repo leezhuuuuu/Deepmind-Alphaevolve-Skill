@@ -1,0 +1,41 @@
+target:
+  files:
+    - examples/toy_solver/src/solver.py
+  evolve_regions:
+    - name: choose_value
+      file: examples/toy_solver/src/solver.py
+
+objectives:
+  correctness:
+    direction: maximize
+    hard_constraint: true
+    minimum: 1.0
+  score:
+    direction: maximize
+
+budget:
+  candidates: 4
+  parallelism: 2
+  max_wall_seconds: 300
+  stop_after_no_improvement: 4
+
+evaluation:
+  public_command: "python examples/toy_solver/evaluator/public.py --candidate {candidate_dir}"
+  hidden_command: ""
+  final_command: ""
+  repetitions: 1
+  metric_schema_version: 1
+
+safety:
+  network: false
+  source_readonly: true
+  candidate_tmpfs: false
+  max_memory_mb: 512
+  timeout_seconds: 10
+  max_output_bytes: 200000
+
+runtime:
+  output_dir: ".alphaevolve/runs"
+  database: "sqlite"
+  patch_mode: "search_replace"
+  model_adapter: "local"
