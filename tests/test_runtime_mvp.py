@@ -264,6 +264,38 @@ class RuntimeMvpTests(unittest.TestCase):
             if run_dir.exists():
                 shutil.rmtree(run_dir)
 
+    def test_bin_packing_example_selects_known_improvement(self) -> None:
+        repo = Path(__file__).resolve().parents[1]
+        run_dir = repo / ".alphaevolve" / "runs" / "unit-bin-packing"
+        if run_dir.exists():
+            shutil.rmtree(run_dir)
+        try:
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "aevolve_runtime.cli",
+                    "run",
+                    "--task",
+                    "examples/bin_packing/task.yaml",
+                    "--patch-dir",
+                    "examples/bin_packing/patches",
+                    "--run-id",
+                    "unit-bin-packing",
+                ],
+                cwd=repo,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            status = json.loads((run_dir / "status.json").read_text(encoding="utf-8"))
+            self.assertEqual(status["best_candidate"], "c-000001")
+            self.assertEqual(status["best_metrics"]["bins_used"], 58.0)
+        finally:
+            if run_dir.exists():
+                shutil.rmtree(run_dir)
+
     def _write_project(self, root: Path, evaluator_body: str = "default") -> None:
         if root.exists():
             shutil.rmtree(root)

@@ -1,0 +1,24 @@
+<<<<<<< SEARCH
+# EVOLVE-BLOCK-START
+def choose_bin(item, remaining_capacities):
+    """Choose a bin for one online item; remaining_capacities are free spaces in capacity-100 bins."""
+    for index, remaining in enumerate(remaining_capacities):
+        if item <= remaining:
+            return index
+    return -1
+# EVOLVE-BLOCK-END
+=======
+# EVOLVE-BLOCK-START
+def choose_bin(item, remaining_capacities):
+    """Choose a bin for one online item; remaining_capacities are free spaces in capacity-100 bins."""
+    best_index = -1
+    best_leftover = None
+    for index, remaining in enumerate(remaining_capacities):
+        if item <= remaining:
+            leftover = remaining - item
+            if best_leftover is None or leftover < best_leftover:
+                best_index = index
+                best_leftover = leftover
+    return best_index
+# EVOLVE-BLOCK-END
+>>>>>>> REPLACE
