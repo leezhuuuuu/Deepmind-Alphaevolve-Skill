@@ -9,9 +9,11 @@ import unittest
 from pathlib import Path
 
 from aevolve_runtime.evaluator import evaluate_candidate
+from aevolve_runtime.generators import GeneratedPatch, write_generated_patches
 from aevolve_runtime.program_db import ProgramDB
 from aevolve_runtime.controller import run_experiment
 from aevolve_runtime.patch_engine import apply_replacements, parse_patch
+from aevolve_runtime.prompt_sampler import build_mutation_prompt
 from aevolve_runtime.task_spec import Evaluation, Safety, TaskSpecError, load_task
 
 
@@ -112,6 +114,45 @@ class RuntimeMvpTests(unittest.TestCase):
             )
             with self.assertRaises(TaskSpecError):
                 load_task(root / "task.yaml", root=root)
+
+    def test_generation_config_prompt_and_patch_writer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_project(root)
+            task_text = (root / "task.yaml").read_text(encoding="utf-8")
+            (root / "task.yaml").write_text(
+                task_text
+                + "generation:\n"
+                + "  mode: api\n"
+                + "  batch_size: 3\n"
+                + "  max_prompt_chars: 20000\n"
+                + "  api:\n"
+                + "    provider: deepseek\n"
+                + "    base_url: \"https://api.deepseek.com\"\n"
+                + "    api_key_env: DEEPSEEK_API_KEY\n"
+                + "    model: deepseek-v4-flash\n"
+                + "    thinking: disabled\n",
+                encoding="utf-8",
+            )
+            task = load_task(root / "task.yaml", root=root)
+            self.assertEqual(task.generation.mode, "api")
+            self.assertEqual(task.generation.batch_size, 3)
+            self.assertEqual(task.generation.api.model, "deepseek-v4-flash")
+
+            bundle = build_mutation_prompt(task, candidate_index=7)
+            self.assertIn("SEARCH/REPLACE", bundle.system)
+            self.assertIn("src/solver.py", bundle.user)
+            self.assertIn("def solve():", bundle.user)
+            self.assertIn("Generate candidate patch #7", bundle.user)
+            self.assertEqual(len(bundle.prompt_hash), 16)
+
+            patch_paths = write_generated_patches(
+                [GeneratedPatch("<<<<<<< SEARCH\nx\n=======\ny\n>>>>>>> REPLACE", "unit")],
+                root / ".alphaevolve" / "generated" / "unit",
+            )
+            self.assertEqual(len(patch_paths), 1)
+            self.assertTrue(patch_paths[0].exists())
+            self.assertTrue((root / ".alphaevolve" / "generated" / "unit" / "manifest.json").exists())
 
     def test_evaluator_handles_spaces_and_invalid_json_exit(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aevolve space ") as tmp:

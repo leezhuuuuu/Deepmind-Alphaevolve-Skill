@@ -73,6 +73,35 @@ class RuntimeConfig:
 
 
 @dataclass(frozen=True)
+class GenerationApiConfig:
+    provider: str = "deepseek"
+    base_url: str = "https://api.deepseek.com"
+    api_key_env: str = "DEEPSEEK_API_KEY"
+    model: str = "deepseek-v4-flash"
+    temperature: float = 0.7
+    max_tokens: int = 4096
+    timeout_seconds: int = 90
+    thinking: str = "disabled"
+    reasoning_effort: str | None = None
+
+
+@dataclass(frozen=True)
+class GenerationAgentConfig:
+    backend: str = "codex"
+    prompt_dir: str = ".alphaevolve/agent-prompts"
+    max_agents: int = 2
+
+
+@dataclass(frozen=True)
+class GenerationConfig:
+    mode: str = "patch_dir"
+    batch_size: int = 1
+    max_prompt_chars: int = 60_000
+    api: GenerationApiConfig = field(default_factory=GenerationApiConfig)
+    agent: GenerationAgentConfig = field(default_factory=GenerationAgentConfig)
+
+
+@dataclass(frozen=True)
 class TaskSpec:
     path: Path
     root: Path
@@ -82,6 +111,7 @@ class TaskSpec:
     evaluation: Evaluation
     safety: Safety
     runtime: RuntimeConfig
+    generation: GenerationConfig
     raw: dict[str, Any]
 
     @property
@@ -222,6 +252,8 @@ def load_task(path: str | Path, root: Path | None = None) -> TaskSpec:
     if not output_parts or output_parts[0] != ".alphaevolve":
         raise TaskSpecError("runtime.output_dir must stay under .alphaevolve for this runtime MVP")
 
+    generation = _parse_generation(raw.get("generation"))
+
     return TaskSpec(
         path=task_path,
         root=task_root,
@@ -231,7 +263,75 @@ def load_task(path: str | Path, root: Path | None = None) -> TaskSpec:
         evaluation=evaluation,
         safety=safety,
         runtime=runtime,
+        generation=generation,
         raw=raw,
+    )
+
+
+def _parse_generation(data: Any) -> GenerationConfig:
+    if data is None:
+        return GenerationConfig()
+    generation_data = _require_mapping(data, "generation")
+    mode = str(generation_data.get("mode") or "patch_dir")
+    if mode not in {"patch_dir", "api", "agent", "hybrid"}:
+        raise TaskSpecError("generation.mode must be patch_dir, api, agent, or hybrid")
+
+    api_data = generation_data.get("api") or {}
+    api_data = _require_mapping(api_data, "generation.api")
+    provider = str(api_data.get("provider") or "deepseek")
+    base_url = str(api_data.get("base_url") or "https://api.deepseek.com").rstrip("/")
+    api_key_env = str(api_data.get("api_key_env") or "DEEPSEEK_API_KEY")
+    model = str(api_data.get("model") or "deepseek-v4-flash")
+    thinking = str(api_data.get("thinking") or "disabled")
+    reasoning_effort = api_data.get("reasoning_effort")
+    if reasoning_effort is not None:
+        reasoning_effort = str(reasoning_effort)
+    if not provider.strip():
+        raise TaskSpecError("generation.api.provider must be non-empty")
+    if not base_url.startswith(("http://", "https://")):
+        raise TaskSpecError("generation.api.base_url must be an HTTP(S) URL")
+    if not api_key_env.strip():
+        raise TaskSpecError("generation.api.api_key_env must be non-empty")
+    if not model.strip():
+        raise TaskSpecError("generation.api.model must be non-empty")
+    if thinking not in {"enabled", "disabled"}:
+        raise TaskSpecError("generation.api.thinking must be enabled or disabled")
+
+    agent_data = generation_data.get("agent") or {}
+    agent_data = _require_mapping(agent_data, "generation.agent")
+    backend = str(agent_data.get("backend") or "codex")
+    prompt_dir = str(agent_data.get("prompt_dir") or ".alphaevolve/agent-prompts")
+    if backend not in {"codex", "claude-code", "manual"}:
+        raise TaskSpecError("generation.agent.backend must be codex, claude-code, or manual")
+    _validate_relative_path(prompt_dir, "generation.agent.prompt_dir")
+    prompt_parts = Path(prompt_dir).parts
+    if not prompt_parts or prompt_parts[0] != ".alphaevolve":
+        raise TaskSpecError("generation.agent.prompt_dir must stay under .alphaevolve")
+
+    return GenerationConfig(
+        mode=mode,
+        batch_size=_positive_int_or_default(generation_data.get("batch_size"), 1, "generation.batch_size"),
+        max_prompt_chars=_positive_int_or_default(
+            generation_data.get("max_prompt_chars"), 60_000, "generation.max_prompt_chars"
+        ),
+        api=GenerationApiConfig(
+            provider=provider,
+            base_url=base_url,
+            api_key_env=api_key_env,
+            model=model,
+            temperature=_float_or_default(api_data.get("temperature"), 0.7, "generation.api.temperature"),
+            max_tokens=_positive_int_or_default(api_data.get("max_tokens"), 4096, "generation.api.max_tokens"),
+            timeout_seconds=_positive_int_or_default(
+                api_data.get("timeout_seconds"), 90, "generation.api.timeout_seconds"
+            ),
+            thinking=thinking,
+            reasoning_effort=reasoning_effort,
+        ),
+        agent=GenerationAgentConfig(
+            backend=backend,
+            prompt_dir=prompt_dir,
+            max_agents=_positive_int_or_default(agent_data.get("max_agents"), 2, "generation.agent.max_agents"),
+        ),
     )
 
 
@@ -257,6 +357,17 @@ def _positive_int_or_default(value: Any, default: int, name: str) -> int:
     if not isinstance(value, int) or value <= 0:
         raise TaskSpecError(f"{name} must be a positive integer")
     return value
+
+
+def _float_or_default(value: Any, default: float, name: str) -> float:
+    if value is None:
+        return default
+    if not isinstance(value, (int, float)):
+        raise TaskSpecError(f"{name} must be numeric")
+    result = float(value)
+    if result < 0:
+        raise TaskSpecError(f"{name} must be non-negative")
+    return result
 
 
 def _validate_relative_path(value: str, label: str) -> None:
