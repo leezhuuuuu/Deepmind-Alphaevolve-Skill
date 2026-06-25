@@ -44,3 +44,20 @@ runtime:
   database: "sqlite"
   patch_mode: "search_replace"
   model_adapter: "openai"
+
+generation:
+  mode: "api"
+  batch_size: 4
+  max_prompt_chars: 60000
+  api:
+    provider: "deepseek"
+    base_url: "https://api.deepseek.com"
+    api_key_env: "DEEPSEEK_API_KEY"
+    model: "deepseek-v4-flash"
+    temperature: 0.7
+    max_tokens: 4096
+    thinking: "disabled"
+  agent:
+    backend: "codex"
+    prompt_dir: ".alphaevolve/agent-prompts"
+    max_agents: 2

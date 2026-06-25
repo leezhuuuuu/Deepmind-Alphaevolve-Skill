@@ -14,7 +14,7 @@ Use this skill as the control plane for evaluator-driven evolutionary code searc
 Treat the system as three layers:
 
 - `alphaevolve` skill: inspect the repository, create and validate `TaskSpec`, start or monitor runs, review champions, and report risk.
-- `aevolve_runtime`: generate patches, schedule evaluations, maintain the program database, checkpoint state, and expose structured status.
+- `aevolve_runtime`: generate or ingest patches, schedule evaluations, maintain the program database, checkpoint state, and expose structured status.
 - evaluator sandbox: execute generated candidates with resource limits, no secrets, no network unless explicitly approved, and hidden tests visible only to evaluator code.
 
 Do not run generated candidate code directly in the primary repository. Do not manually carry hundreds of candidates in conversation context. Use structured files under `.alphaevolve/` or runtime APIs.
@@ -81,6 +81,20 @@ Use bundled assets:
    python3 .agents/skills/alphaevolve/scripts/aevolve_run.py --task .alphaevolve/task.yaml --patch-dir <candidate-patches>
    ```
 
+   For live API generation, require an approved API budget and an API key in the configured environment variable, then use:
+
+   ```bash
+   python3 -m aevolve_runtime.cli run --task .alphaevolve/task.yaml --generate 8
+   ```
+
+   For Codex or Claude Code worker generation, first create prompt files:
+
+   ```bash
+   python3 -m aevolve_runtime.cli agent-prompts --task .alphaevolve/task.yaml --count 4
+   ```
+
+   Dispatch those prompts to workers, save each returned SEARCH/REPLACE patch as a `.patch` file, and pass that directory to `run`.
+
 9. Monitor structured state, not free-form logs:
 
    ```bash
@@ -96,7 +110,10 @@ Expect a runtime command shaped like:
 
 ```bash
 python3 -m aevolve_runtime.cli validate --task .alphaevolve/task.yaml
+python3 -m aevolve_runtime.cli generate --task .alphaevolve/task.yaml --count 4
+python3 -m aevolve_runtime.cli agent-prompts --task .alphaevolve/task.yaml --count 4
 python3 -m aevolve_runtime.cli run --task .alphaevolve/task.yaml --patch-dir <candidate-patches>
+python3 -m aevolve_runtime.cli run --task .alphaevolve/task.yaml --generate 4
 python3 -m aevolve_runtime.cli status --run-dir .alphaevolve/runs/<run-id>
 python3 -m aevolve_runtime.cli review --run-dir .alphaevolve/runs/<run-id>
 ```

@@ -12,7 +12,7 @@ import unittest
 from pathlib import Path
 
 from aevolve_runtime.evaluator import evaluate_candidate
-from aevolve_runtime.generators import GeneratedPatch, write_generated_patches
+from aevolve_runtime.generators import GeneratedPatch, write_agent_prompts, write_generated_patches
 from aevolve_runtime.generators.openai_compatible import OpenAICompatibleGenerator
 from aevolve_runtime.program_db import ProgramDB
 from aevolve_runtime.controller import run_experiment
@@ -157,6 +157,13 @@ class RuntimeMvpTests(unittest.TestCase):
             self.assertEqual(len(patch_paths), 1)
             self.assertTrue(patch_paths[0].exists())
             self.assertTrue((root / ".alphaevolve" / "generated" / "unit" / "manifest.json").exists())
+
+            prompt_paths = write_agent_prompts(task, count=2, output_dir=root / ".alphaevolve" / "agent-prompts" / "unit")
+            self.assertEqual(len(prompt_paths), 2)
+            prompt_text = prompt_paths[0].read_text(encoding="utf-8")
+            self.assertIn("Candidate Worker 1", prompt_text)
+            self.assertIn("Return only the patch text", prompt_text)
+            self.assertIn("src/solver.py", prompt_text)
 
     def test_openai_compatible_generator_uses_configured_endpoint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -10,6 +10,7 @@ Use `.alphaevolve/task.yaml` as the durable contract between Codex, the runtime,
 - `evaluation`: public, hidden, and final validation commands plus repetitions.
 - `safety`: network, filesystem, memory, time, process, and secret boundaries.
 - `runtime`: model adapter, patch mode, database path, and output directory.
+- `generation`: optional candidate source configuration for API models or worker agents.
 
 ## Minimal Shape
 
@@ -59,6 +60,23 @@ runtime:
   database: "sqlite"
   patch_mode: "search_replace"
   model_adapter: "openai"
+
+generation:
+  mode: "api"
+  batch_size: 8
+  max_prompt_chars: 60000
+  api:
+    provider: "deepseek"
+    base_url: "https://api.deepseek.com"
+    api_key_env: "DEEPSEEK_API_KEY"
+    model: "deepseek-v4-flash"
+    temperature: 0.7
+    max_tokens: 4096
+    thinking: "disabled"
+  agent:
+    backend: "codex"
+    prompt_dir: ".alphaevolve/agent-prompts"
+    max_agents: 2
 ```
 
 ## Authoring Rules
@@ -79,3 +97,5 @@ runtime:
 - The safety section denies network by default.
 - Budget values are finite and small enough for the user's stated intent.
 - Runtime output paths are under `.alphaevolve/` unless the user explicitly approves another location.
+- API keys are referenced by environment variable name only; never write credentials into TaskSpec, prompt files, reports, commits, or candidate worktrees.
+- Use `generation.mode: agent` or `hybrid` when Codex/Claude worker prompts are part of the candidate generation plan.

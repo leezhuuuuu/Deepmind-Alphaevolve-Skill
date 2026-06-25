@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from .controller import create_run_id, run_experiment
-from .generators import OpenAICompatibleGenerator, write_generated_patches
+from .generators import OpenAICompatibleGenerator, write_agent_prompts, write_generated_patches
 from .program_db import ProgramDB
 from .task_spec import TaskSpecError, load_task, repo_root
 
@@ -32,6 +32,11 @@ def main(argv: list[str] | None = None) -> int:
     generate_parser.add_argument("--task", required=True)
     generate_parser.add_argument("--count", type=int, default=None)
     generate_parser.add_argument("--out", default=None)
+
+    agent_parser = subparsers.add_parser("agent-prompts", help="Write prompts for Codex/Claude worker agents")
+    agent_parser.add_argument("--task", required=True)
+    agent_parser.add_argument("--count", type=int, default=None)
+    agent_parser.add_argument("--out", default=None)
 
     status_parser = subparsers.add_parser("status", help="Print run status")
     status_parser.add_argument("--run-dir", default=None)
@@ -67,6 +72,17 @@ def main(argv: list[str] | None = None) -> int:
             patch_paths = _generate_patch_paths(task, count=count, output_dir=output_dir)
             print(f"Generated {len(patch_paths)} patch(es): {output_dir}")
             for path in patch_paths:
+                print(path)
+            return 0
+        if args.command == "agent-prompts":
+            task = load_task(args.task)
+            count = args.count or task.generation.agent.max_agents
+            output_dir = (
+                Path(args.out).resolve() if args.out else task.root / task.generation.agent.prompt_dir / create_run_id()
+            )
+            prompt_paths = write_agent_prompts(task, count=count, output_dir=output_dir)
+            print(f"Wrote {len(prompt_paths)} agent prompt(s): {output_dir}")
+            for path in prompt_paths:
                 print(path)
             return 0
         if args.command == "status":
