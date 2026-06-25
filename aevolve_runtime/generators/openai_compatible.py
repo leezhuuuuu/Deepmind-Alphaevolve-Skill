@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from typing import Any
 from urllib import error, parse, request
 
@@ -36,18 +37,23 @@ class OpenAICompatibleGenerator(PatchGenerator):
         for index in range(1, count + 1):
             feedback = _diversity_hint(index, count)
             bundle = build_mutation_prompt(task, candidate_index=index, prior_feedback=feedback)
+            started = time.perf_counter()
             response = _chat_completion(api=api, api_key=api_key, messages=bundle.messages())
+            elapsed_seconds = time.perf_counter() - started
             content = _extract_message_content(response)
+            metadata = {
+                "candidate_index": str(index),
+                "prompt_hash": bundle.prompt_hash,
+                "provider": api.provider,
+                "model": api.model,
+                "elapsed_seconds": f"{elapsed_seconds:.6f}",
+            }
+            metadata.update(_usage_metadata(response))
             patches.append(
                 GeneratedPatch(
                     patch_text=_extract_patch_text(content, task),
                     source=f"{api.provider}:{api.model}",
-                    metadata={
-                        "candidate_index": str(index),
-                        "prompt_hash": bundle.prompt_hash,
-                        "provider": api.provider,
-                        "model": api.model,
-                    },
+                    metadata=metadata,
                 )
             )
         return patches
@@ -155,6 +161,19 @@ def _extract_message_content(response: dict[str, Any]) -> str:
     if not isinstance(content, str) or not content.strip():
         raise RuntimeError("LLM API response message has empty content")
     return content
+
+
+def _usage_metadata(response: dict[str, Any]) -> dict[str, str]:
+    usage = response.get("usage")
+    if not isinstance(usage, dict):
+        return {}
+    metadata: dict[str, str] = {}
+    for key, value in usage.items():
+        if isinstance(value, (int, float, str, bool)):
+            metadata[f"usage_{key}"] = str(value)
+        elif value is not None:
+            metadata[f"usage_{key}"] = json.dumps(value, sort_keys=True)
+    return metadata
 
 
 def _extract_patch_text(content: str, task: TaskSpec) -> str:
