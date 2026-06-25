@@ -1,0 +1,46 @@
+# Copy to .alphaevolve/task.yaml and edit before running.
+target:
+  files:
+    - src/solver.py
+  evolve_regions:
+    - name: solve
+      file: src/solver.py
+      marker_start: "# EVOLVE-BLOCK-START"
+      marker_end: "# EVOLVE-BLOCK-END"
+
+objectives:
+  correctness:
+    direction: maximize
+    hard_constraint: true
+    minimum: 1.0
+  latency_ms:
+    direction: minimize
+  memory_mb:
+    direction: minimize
+
+budget:
+  candidates: 50
+  parallelism: 2
+  max_wall_seconds: 1800
+  stop_after_no_improvement: 20
+
+evaluation:
+  public_command: "python evaluator/public.py --candidate {candidate_dir}"
+  hidden_command: ""
+  final_command: ""
+  repetitions: 3
+  metric_schema_version: 1
+
+safety:
+  network: false
+  source_readonly: true
+  candidate_tmpfs: true
+  max_memory_mb: 512
+  timeout_seconds: 30
+  max_output_bytes: 200000
+
+runtime:
+  output_dir: ".alphaevolve/runs"
+  database: "sqlite"
+  patch_mode: "search_replace"
+  model_adapter: "openai"

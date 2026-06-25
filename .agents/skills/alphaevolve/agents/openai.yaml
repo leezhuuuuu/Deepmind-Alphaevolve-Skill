@@ -1,0 +1,6 @@
+interface:
+  display_name: "AlphaEvolve"
+  short_description: "Evaluator-driven evolutionary code search"
+  default_prompt: "Use $alphaevolve to configure, validate, run, or review a bounded evolutionary code-search experiment."
+policy:
+  allow_implicit_invocation: false
