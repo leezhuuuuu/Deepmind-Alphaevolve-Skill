@@ -169,6 +169,13 @@ class RuntimeMvpTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self._write_project(root)
+            _FakeCompletionHandler.response_content = (
+                "FILE: src/solver.py\n"
+                "```python\n"
+                "def solve():\n"
+                "    return 2\n"
+                "```\n"
+            )
             server = HTTPServer(("127.0.0.1", 0), _FakeCompletionHandler)
             _FakeCompletionHandler.requests = []
             thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -198,7 +205,8 @@ class RuntimeMvpTests(unittest.TestCase):
                 thread.join(timeout=5)
 
             self.assertEqual(len(patches), 2)
-            self.assertTrue(patches[0].patch_text.startswith("<<<<<<< SEARCH"))
+            self.assertTrue(patches[0].patch_text.startswith("FILE: src/solver.py"))
+            self.assertIn("<<<<<<< SEARCH", patches[0].patch_text)
             self.assertIn("return 2", patches[0].patch_text)
             self.assertEqual(len(_FakeCompletionHandler.requests), 2)
             first_request = _FakeCompletionHandler.requests[0]
@@ -366,6 +374,17 @@ class RuntimeMvpTests(unittest.TestCase):
 
 class _FakeCompletionHandler(BaseHTTPRequestHandler):
     requests: list[dict] = []
+    response_content = (
+        "```text\n"
+        "<<<<<<< SEARCH\n"
+        "def solve():\n"
+        "    return 1\n"
+        "=======\n"
+        "def solve():\n"
+        "    return 2\n"
+        ">>>>>>> REPLACE\n"
+        "```"
+    )
 
     def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length", "0"))
@@ -380,19 +399,7 @@ class _FakeCompletionHandler(BaseHTTPRequestHandler):
         response = {
             "choices": [
                 {
-                    "message": {
-                        "content": (
-                            "```text\n"
-                            "<<<<<<< SEARCH\n"
-                            "def solve():\n"
-                            "    return 1\n"
-                            "=======\n"
-                            "def solve():\n"
-                            "    return 2\n"
-                            ">>>>>>> REPLACE\n"
-                            "```"
-                        )
-                    }
+                    "message": {"content": self.__class__.response_content}
                 }
             ]
         }

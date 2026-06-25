@@ -31,7 +31,7 @@ class OpenAICompatibleGenerator(PatchGenerator):
             content = _extract_message_content(response)
             patches.append(
                 GeneratedPatch(
-                    patch_text=_extract_patch_text(content),
+                    patch_text=_extract_patch_text(content, task),
                     source=f"{api.provider}:{api.model}",
                     metadata={
                         "candidate_index": str(index),
@@ -93,7 +93,7 @@ def _extract_message_content(response: dict[str, Any]) -> str:
     return content
 
 
-def _extract_patch_text(content: str) -> str:
+def _extract_patch_text(content: str, task: TaskSpec) -> str:
     stripped = _strip_fence(content.strip())
     lines = stripped.splitlines()
     first_search = None
@@ -104,7 +104,8 @@ def _extract_patch_text(content: str) -> str:
         if line.strip() == ">>>>>>> REPLACE":
             last_replace = index
     if first_search is None or last_replace is None or last_replace < first_search:
-        return stripped
+        coerced = _coerce_code_to_replace_patch(stripped, task)
+        return coerced or stripped
 
     start = first_search
     if first_search > 0 and lines[first_search - 1].strip().startswith("FILE: "):
@@ -119,6 +120,52 @@ def _strip_fence(content: str) -> str:
     if len(lines) >= 2 and lines[-1].strip() == "```":
         return "\n".join(lines[1:-1]).strip()
     return content
+
+
+def _coerce_code_to_replace_patch(content: str, task: TaskSpec) -> str | None:
+    file_name, payload = _split_file_payload(content, task)
+    code = _extract_code_payload(payload)
+    if not _looks_like_code(code):
+        return None
+    current = (task.root / file_name).read_text(encoding="utf-8")
+    return (
+        f"FILE: {file_name}\n"
+        "<<<<<<< SEARCH\n"
+        f"{_ensure_trailing_newline(current)}"
+        "=======\n"
+        f"{_ensure_trailing_newline(code)}"
+        ">>>>>>> REPLACE"
+    )
+
+
+def _split_file_payload(content: str, task: TaskSpec) -> tuple[str, str]:
+    default_file = task.target.files[0]
+    lines = content.splitlines()
+    if lines and lines[0].strip().startswith("FILE: "):
+        file_name = lines[0].split(":", 1)[1].strip()
+        if file_name in task.target.files:
+            return file_name, "\n".join(lines[1:]).strip()
+    return default_file, content
+
+
+def _extract_code_payload(content: str) -> str:
+    lines = content.strip().splitlines()
+    for index, line in enumerate(lines):
+        if line.strip().startswith("```"):
+            body: list[str] = []
+            for inner in lines[index + 1 :]:
+                if inner.strip() == "```":
+                    return "\n".join(body).strip()
+                body.append(inner)
+    return content.strip()
+
+
+def _looks_like_code(content: str) -> bool:
+    return "def " in content or "# EVOLVE-BLOCK-START" in content or "class " in content
+
+
+def _ensure_trailing_newline(content: str) -> str:
+    return content if content.endswith("\n") else f"{content}\n"
 
 
 def _diversity_hint(index: int, count: int) -> str:
