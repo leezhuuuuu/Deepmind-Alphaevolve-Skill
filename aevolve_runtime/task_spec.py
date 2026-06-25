@@ -91,6 +91,10 @@ class TaskSpec:
             return soft[0]
         return next(iter(self.objectives.values()), None)
 
+    @property
+    def required_metric_names(self) -> set[str]:
+        return set(self.objectives)
+
 
 def repo_root(start: Path | None = None) -> Path:
     current = (start or Path.cwd()).resolve()
@@ -125,8 +129,7 @@ def load_task(path: str | Path, root: Path | None = None) -> TaskSpec:
     if not isinstance(files, list) or not files or not all(isinstance(item, str) for item in files):
         raise TaskSpecError("target.files must be a non-empty list of strings")
     for file_name in files:
-        if Path(file_name).is_absolute():
-            raise TaskSpecError(f"target file must be relative: {file_name}")
+        _validate_relative_path(file_name, "target file")
         if not (task_root / file_name).exists():
             raise TaskSpecError(f"target file does not exist: {file_name}")
 
@@ -137,6 +140,9 @@ def load_task(path: str | Path, root: Path | None = None) -> TaskSpec:
         file_name = item.get("file")
         if not isinstance(name, str) or not isinstance(file_name, str):
             raise TaskSpecError("each evolve region needs string name and file")
+        _validate_relative_path(file_name, "evolve region file")
+        if file_name not in files:
+            raise TaskSpecError(f"evolve region file must be listed in target.files: {file_name}")
         regions.append(
             EvolveRegion(
                 name=name,
@@ -211,6 +217,10 @@ def load_task(path: str | Path, root: Path | None = None) -> TaskSpec:
         raise TaskSpecError("runtime.database must be sqlite for this runtime MVP")
     if runtime.patch_mode != "search_replace":
         raise TaskSpecError("runtime.patch_mode must be search_replace for this runtime MVP")
+    _validate_relative_path(runtime.output_dir, "runtime.output_dir")
+    output_parts = Path(runtime.output_dir).parts
+    if not output_parts or output_parts[0] != ".alphaevolve":
+        raise TaskSpecError("runtime.output_dir must stay under .alphaevolve for this runtime MVP")
 
     return TaskSpec(
         path=task_path,
@@ -247,3 +257,9 @@ def _positive_int_or_default(value: Any, default: int, name: str) -> int:
     if not isinstance(value, int) or value <= 0:
         raise TaskSpecError(f"{name} must be a positive integer")
     return value
+
+
+def _validate_relative_path(value: str, label: str) -> None:
+    path = Path(value)
+    if path.is_absolute() or ".." in path.parts:
+        raise TaskSpecError(f"{label} must be a safe relative path: {value}")

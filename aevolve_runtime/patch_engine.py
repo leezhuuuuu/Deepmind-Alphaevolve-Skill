@@ -71,7 +71,7 @@ def parse_patch(text: str, default_file: str | None = None) -> list[Replacement]
     return replacements
 
 
-def apply_replacements(root: Path, replacements: list[Replacement]) -> list[str]:
+def apply_replacements(root: Path, replacements: list[Replacement], allowed_files: set[str] | None = None) -> list[str]:
     """Apply replacements under `root` and return touched relative paths."""
 
     touched: list[str] = []
@@ -79,6 +79,9 @@ def apply_replacements(root: Path, replacements: list[Replacement]) -> list[str]
         rel_path = Path(replacement.file)
         if rel_path.is_absolute() or ".." in rel_path.parts:
             raise PatchError(f"unsafe patch path: {replacement.file}")
+        normalized = rel_path.as_posix()
+        if allowed_files is not None and normalized not in allowed_files:
+            raise PatchError(f"patch target is outside allowed target files: {replacement.file}")
         path = root / rel_path
         if not path.exists():
             raise PatchError(f"patch target does not exist: {replacement.file}")
@@ -87,15 +90,20 @@ def apply_replacements(root: Path, replacements: list[Replacement]) -> list[str]
         if count != 1:
             raise PatchError(f"SEARCH block matched {count} times in {replacement.file}; expected exactly 1")
         path.write_text(content.replace(replacement.search, replacement.replace, 1), encoding="utf-8")
-        if replacement.file not in touched:
-            touched.append(replacement.file)
+        if normalized not in touched:
+            touched.append(normalized)
     return touched
 
 
-def load_and_apply_patch(root: Path, patch_path: Path, default_file: str | None = None) -> list[str]:
+def load_and_apply_patch(
+    root: Path,
+    patch_path: Path,
+    default_file: str | None = None,
+    allowed_files: set[str] | None = None,
+) -> list[str]:
     patch_text = patch_path.read_text(encoding="utf-8")
     replacements = parse_patch(patch_text, default_file=default_file)
-    return apply_replacements(root, replacements)
+    return apply_replacements(root, replacements, allowed_files=allowed_files)
 
 
 def _file_marker(line: str) -> str | None:

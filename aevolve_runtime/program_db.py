@@ -147,6 +147,8 @@ class ProgramDB:
 
 
 def _passes_constraints(candidate: CandidateRecord, task: TaskSpec) -> bool:
+    if task.required_metric_names - set(candidate.metrics):
+        return False
     for objective in task.objectives.values():
         if not objective.hard_constraint:
             continue

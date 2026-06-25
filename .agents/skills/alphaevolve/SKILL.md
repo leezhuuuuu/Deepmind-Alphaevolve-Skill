@@ -46,7 +46,7 @@ Use bundled helpers:
 
 - `scripts/aevolve_init.py`: create `.alphaevolve/task.yaml` from the template.
 - `scripts/aevolve_validate.py`: perform structural checks on a task spec.
-- `scripts/aevolve_run.py`: delegate to `python -m aevolve_runtime.cli run` when the runtime exists.
+- `scripts/aevolve_run.py`: delegate to `python3 -m aevolve_runtime.cli run` when the runtime exists.
 - `scripts/aevolve_status.py`: summarize a structured run status file.
 - `scripts/aevolve_review.py`: summarize champion and report artifacts.
 
@@ -63,7 +63,7 @@ Use bundled assets:
 3. Read `references/task-spec.md`, then initialize a task:
 
    ```bash
-   python .agents/skills/alphaevolve/scripts/aevolve_init.py
+   python3 .agents/skills/alphaevolve/scripts/aevolve_init.py
    ```
 
 4. Edit `.alphaevolve/task.yaml` for the target, objectives, evaluator commands, budget, and safety limits.
@@ -71,20 +71,20 @@ Use bundled assets:
 6. Validate the task:
 
    ```bash
-   python .agents/skills/alphaevolve/scripts/aevolve_validate.py --task .alphaevolve/task.yaml
+   python3 .agents/skills/alphaevolve/scripts/aevolve_validate.py --task .alphaevolve/task.yaml
    ```
 
 7. Read `references/safety-policy.md` before launching runtime workers.
 8. Launch the runtime only when `aevolve_runtime` exists or the user asks you to scaffold it:
 
    ```bash
-   python .agents/skills/alphaevolve/scripts/aevolve_run.py --task .alphaevolve/task.yaml --patch-dir <candidate-patches>
+   python3 .agents/skills/alphaevolve/scripts/aevolve_run.py --task .alphaevolve/task.yaml --patch-dir <candidate-patches>
    ```
 
 9. Monitor structured state, not free-form logs:
 
    ```bash
-   python .agents/skills/alphaevolve/scripts/aevolve_status.py
+   python3 .agents/skills/alphaevolve/scripts/aevolve_status.py
    ```
 
 10. Review the champion independently. Read `references/report-format.md`, rerun final validation outside the evolutionary selection loop, then summarize metrics, lineage, cost, risk, and the proposed diff.
@@ -95,10 +95,10 @@ Use bundled assets:
 Expect a runtime command shaped like:
 
 ```bash
-python -m aevolve_runtime.cli validate --task .alphaevolve/task.yaml
-python -m aevolve_runtime.cli run --task .alphaevolve/task.yaml --patch-dir <candidate-patches>
-python -m aevolve_runtime.cli status --run-dir .alphaevolve/runs/<run-id>
-python -m aevolve_runtime.cli review --run-dir .alphaevolve/runs/<run-id>
+python3 -m aevolve_runtime.cli validate --task .alphaevolve/task.yaml
+python3 -m aevolve_runtime.cli run --task .alphaevolve/task.yaml --patch-dir <candidate-patches>
+python3 -m aevolve_runtime.cli status --run-dir .alphaevolve/runs/<run-id>
+python3 -m aevolve_runtime.cli review --run-dir .alphaevolve/runs/<run-id>
 ```
 
 If the runtime is missing, explain that the skill is installed but the execution plane still needs to be scaffolded. Offer to create `aevolve_runtime/` as a separate implementation task.
@@ -108,12 +108,12 @@ If the runtime is missing, explain that the skill is installed but the execution
 When working in this repository, verify the skill/runtime bridge with the bundled toy benchmark:
 
 ```bash
-python .agents/skills/alphaevolve/scripts/aevolve_run.py \
+python3 .agents/skills/alphaevolve/scripts/aevolve_run.py \
   --task examples/toy_solver/task.yaml \
   --patch-dir examples/toy_solver/patches \
   --run-id skill-smoke
-python .agents/skills/alphaevolve/scripts/aevolve_status.py --run-dir .alphaevolve/runs/skill-smoke
-python .agents/skills/alphaevolve/scripts/aevolve_review.py --run-dir .alphaevolve/runs/skill-smoke
+python3 .agents/skills/alphaevolve/scripts/aevolve_status.py --run-dir .alphaevolve/runs/skill-smoke
+python3 .agents/skills/alphaevolve/scripts/aevolve_review.py --run-dir .alphaevolve/runs/skill-smoke
 ```
 
 Remove `.alphaevolve/runs/skill-smoke` after the check unless the user wants to inspect artifacts.
@@ -125,5 +125,5 @@ Consider an experiment complete only when:
 - The baseline and champion were both evaluated under the same declared protocol.
 - The champion passes hidden or holdout validation when available.
 - The measured improvement clears the configured significance threshold.
-- The run directory preserves task spec, prompts or prompt hashes, patches, metrics, lineage, logs, checkpoints, and final report.
+- The run directory preserves task spec, local patches, metrics, SQLite archive, status, and final report; generated prompts, lineage, logs, and checkpoints are preserved when the configured runtime produces them.
 - The final answer names unresolved risks, especially evaluator leakage, overfitting, timing noise, resource limits, and sandbox gaps.

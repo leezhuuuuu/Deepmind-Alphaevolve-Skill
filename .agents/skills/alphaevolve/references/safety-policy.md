@@ -18,6 +18,8 @@ Run each candidate with:
 
 Codex sandboxing is useful, but it is not a substitute for evaluator-worker isolation. The runtime must enforce candidate-level boundaries even when Codex itself is already sandboxed.
 
+The bundled local runtime is an MVP harness, not a production sandbox. It runs evaluators inside copied candidate work directories with a reduced environment and timeout enforcement, but it does not provide container-level network, memory, process, or filesystem isolation. Use containerized or remote workers before evaluating hostile or high-risk candidates.
+
 ## Approval Boundaries
 
 Ask the user before:

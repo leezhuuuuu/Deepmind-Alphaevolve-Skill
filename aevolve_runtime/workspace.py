@@ -28,7 +28,8 @@ def materialize_candidate(
     if patch_path is None:
         return []
     default_file = task.target.files[0] if len(task.target.files) == 1 else None
-    return load_and_apply_patch(candidate_dir, patch_path, default_file=default_file)
+    allowed_files = {Path(file_name).as_posix() for file_name in task.target.files}
+    return load_and_apply_patch(candidate_dir, patch_path, default_file=default_file, allowed_files=allowed_files)
 
 
 def _ignore(_dir: str, names: list[str]) -> set[str]:

@@ -53,8 +53,15 @@ def validate_yaml(data) -> list[str]:
 
     target = data.get("target") or {}
     for file_name in target.get("files") or []:
+        if not _is_safe_relative(file_name):
+            errors.append(f"target file must be a safe relative path: {file_name}")
+            continue
         if not (repo_root() / file_name).exists():
             errors.append(f"target file does not exist: {file_name}")
+    for region in target.get("evolve_regions") or []:
+        file_name = region.get("file") if isinstance(region, dict) else None
+        if file_name and file_name not in (target.get("files") or []):
+            errors.append(f"evolve region file must be listed in target.files: {file_name}")
 
     budget = data.get("budget") or {}
     for key in ["candidates", "parallelism", "max_wall_seconds"]:
@@ -73,14 +80,21 @@ def validate_yaml(data) -> list[str]:
         value = safety.get(key)
         if not isinstance(value, int) or value <= 0:
             errors.append(f"safety.{key} must be a positive integer")
+    runtime = data.get("runtime") or {}
+    output_dir = runtime.get("output_dir", ".alphaevolve/runs")
+    if not isinstance(output_dir, str) or not _is_safe_relative(output_dir):
+        errors.append("runtime.output_dir must be a safe relative path")
+    elif not Path(output_dir).parts or Path(output_dir).parts[0] != ".alphaevolve":
+        errors.append("runtime.output_dir must stay under .alphaevolve")
     return errors
 
 
 def run_public_command(command: str) -> int:
-    if "{candidate_dir}" in command:
-        command = command.replace("{candidate_dir}", str(repo_root()))
-    print(f"Running public evaluator: {command}")
-    completed = subprocess.run(shlex.split(command), cwd=repo_root(), text=True, capture_output=True)
+    argv = [token.replace("{candidate_dir}", str(repo_root())) for token in shlex.split(command)]
+    if argv and argv[0] == "python":
+        argv[0] = sys.executable
+    print(f"Running public evaluator: {' '.join(argv)}")
+    completed = subprocess.run(argv, cwd=repo_root(), text=True, capture_output=True)
     if completed.stdout:
         print(completed.stdout.strip())
     if completed.stderr:
@@ -97,6 +111,11 @@ def run_public_command(command: str) -> int:
         print("Public evaluator JSON must contain valid and metrics fields", file=sys.stderr)
         return 1
     return 0
+
+
+def _is_safe_relative(value: str) -> bool:
+    path = Path(value)
+    return not path.is_absolute() and ".." not in path.parts
 
 
 def main() -> int:

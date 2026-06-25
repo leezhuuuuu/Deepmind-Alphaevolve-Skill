@@ -8,9 +8,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from aevolve_runtime.evaluator import evaluate_candidate
+from aevolve_runtime.program_db import ProgramDB
 from aevolve_runtime.controller import run_experiment
 from aevolve_runtime.patch_engine import apply_replacements, parse_patch
-from aevolve_runtime.task_spec import load_task
+from aevolve_runtime.task_spec import Evaluation, Safety, TaskSpecError, load_task
 
 
 class PatchEngineTests(unittest.TestCase):
@@ -49,6 +51,92 @@ class RuntimeMvpTests(unittest.TestCase):
             self.assertEqual(status["best_metrics"]["score"], 2.0)
             self.assertTrue((run_dir / "run.db").exists())
             self.assertTrue((run_dir / "report" / "report.md").exists())
+            self.assertTrue((run_dir / "report" / "champion.patch").exists())
+            with self.assertRaises(FileExistsError):
+                run_experiment(root / "task.yaml", patch_paths=[root / "patches" / "better.patch"], run_id="run-test")
+
+    def test_runtime_rejects_patch_outside_target_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_project(root)
+            (root / "patches" / "bad.patch").write_text(
+                "FILE: evaluator/public.py\n"
+                "<<<<<<< SEARCH\n"
+                "import argparse, importlib.util, json, pathlib\n"
+                "=======\n"
+                "import argparse, importlib.util, json, pathlib\n"
+                "# bad edit\n"
+                ">>>>>>> REPLACE\n",
+                encoding="utf-8",
+            )
+            run_dir = run_experiment(root / "task.yaml", patch_paths=[root / "patches" / "bad.patch"], run_id="bad-patch")
+            status = json.loads((run_dir / "status.json").read_text(encoding="utf-8"))
+            self.assertEqual(status["best_candidate"], "c-000000-baseline")
+            db = ProgramDB(run_dir / "run.db")
+            try:
+                candidate = [item for item in db.list_candidates() if item.candidate_id == "c-000001"][0]
+                self.assertFalse(candidate.valid)
+                self.assertIn("outside allowed target files", candidate.error or "")
+            finally:
+                db.close()
+
+    def test_runtime_rejects_missing_declared_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_project(root, evaluator_body="missing-score")
+            run_dir = run_experiment(root / "task.yaml", patch_paths=[], run_id="missing-metric")
+            status = json.loads((run_dir / "status.json").read_text(encoding="utf-8"))
+            self.assertIsNone(status["best_candidate"])
+            db = ProgramDB(run_dir / "run.db")
+            try:
+                baseline = db.list_candidates()[0]
+                self.assertFalse(baseline.valid)
+                self.assertIn("missing required metrics: score", baseline.error or "")
+            finally:
+                db.close()
+
+    def test_task_spec_rejects_boundary_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_project(root)
+            task_text = (root / "task.yaml").read_text(encoding="utf-8")
+            (root / "task.yaml").write_text(task_text.replace("- src/solver.py", "- ../outside.py"), encoding="utf-8")
+            with self.assertRaises(TaskSpecError):
+                load_task(root / "task.yaml", root=root)
+
+            self._write_project(root)
+            task_text = (root / "task.yaml").read_text(encoding="utf-8")
+            (root / "task.yaml").write_text(
+                task_text.replace('output_dir: ".alphaevolve/runs"', 'output_dir: "runs"'),
+                encoding="utf-8",
+            )
+            with self.assertRaises(TaskSpecError):
+                load_task(root / "task.yaml", root=root)
+
+    def test_evaluator_handles_spaces_and_invalid_json_exit(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aevolve space ") as tmp:
+            root = Path(tmp)
+            candidate = root / "candidate dir"
+            candidate.mkdir(parents=True)
+            evaluator = candidate / "eval.py"
+            evaluator.write_text(
+                "import argparse, json, pathlib, sys\n"
+                "p = argparse.ArgumentParser(); p.add_argument('--candidate', required=True); a = p.parse_args()\n"
+                "assert pathlib.Path(a.candidate).name == 'candidate dir'\n"
+                "print(json.dumps({'valid': False, 'metrics': {'score': 0.0}, 'feedback': {'kept': True}}))\n"
+                "sys.exit(1)\n",
+                encoding="utf-8",
+            )
+            result = evaluate_candidate(
+                command="python eval.py --candidate {candidate_dir}",
+                candidate_dir=candidate,
+                repo_root=root,
+                evaluation=Evaluation(public_command="", repetitions=1),
+                safety=Safety(timeout_seconds=5),
+            )
+            self.assertFalse(result.valid)
+            self.assertEqual(result.metrics["score"], 0.0)
+            self.assertIsNone(result.error)
 
     def test_example_task_runs_through_cli(self) -> None:
         repo = Path(__file__).resolve().parents[1]
@@ -82,22 +170,31 @@ class RuntimeMvpTests(unittest.TestCase):
             if run_dir.exists():
                 shutil.rmtree(run_dir)
 
-    def _write_project(self, root: Path) -> None:
+    def _write_project(self, root: Path, evaluator_body: str = "default") -> None:
+        if root.exists():
+            shutil.rmtree(root)
+            root.mkdir()
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
         (root / "src").mkdir()
         (root / "evaluator").mkdir()
         (root / "patches").mkdir()
         (root / "src" / "solver.py").write_text("def solve():\n    return 1\n", encoding="utf-8")
-        (root / "evaluator" / "public.py").write_text(
-            "import argparse, importlib.util, json, pathlib\n"
-            "p = argparse.ArgumentParser(); p.add_argument('--candidate', required=True); a = p.parse_args()\n"
-            "path = pathlib.Path(a.candidate) / 'src' / 'solver.py'\n"
-            "spec = importlib.util.spec_from_file_location('solver', path)\n"
-            "mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)\n"
-            "value = mod.solve()\n"
-            "print(json.dumps({'valid': value in {1, 2}, 'metrics': {'correctness': 1.0, 'score': float(value)}, 'feedback': {'value': value}}))\n",
-            encoding="utf-8",
-        )
+        if evaluator_body == "missing-score":
+            public_py = (
+                "import json\n"
+                "print(json.dumps({'valid': True, 'metrics': {'correctness': 1.0}, 'feedback': {}}))\n"
+            )
+        else:
+            public_py = (
+                "import argparse, importlib.util, json, pathlib\n"
+                "p = argparse.ArgumentParser(); p.add_argument('--candidate', required=True); a = p.parse_args()\n"
+                "path = pathlib.Path(a.candidate) / 'src' / 'solver.py'\n"
+                "spec = importlib.util.spec_from_file_location('solver', path)\n"
+                "mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)\n"
+                "value = mod.solve()\n"
+                "print(json.dumps({'valid': value in {1, 2}, 'metrics': {'correctness': 1.0, 'score': float(value)}, 'feedback': {'value': value}}))\n"
+            )
+        (root / "evaluator" / "public.py").write_text(public_py, encoding="utf-8")
         (root / "patches" / "better.patch").write_text(
             "<<<<<<< SEARCH\n"
             "def solve():\n"

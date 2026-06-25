@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import math
+import os
 import shlex
 import statistics
 import subprocess
@@ -36,11 +38,10 @@ def evaluate_candidate(
 ) -> EvaluationResult:
     """Run an evaluator command repeatedly and aggregate numeric metrics."""
 
-    rendered = command.replace("{candidate_dir}", str(candidate_dir))
     raw_results: list[dict[str, Any]] = []
     errors: list[str] = []
     for _ in range(evaluation.repetitions):
-        result, error = _run_once(rendered, repo_root, safety)
+        result, error = _run_once(command, candidate_dir, safety)
         if error:
             errors.append(error)
         if result is not None:
@@ -51,7 +52,7 @@ def evaluate_candidate(
             valid=False,
             metrics={},
             feedback={"errors": errors},
-            command=rendered,
+            command=command.replace("{candidate_dir}", str(candidate_dir)),
             repetitions=evaluation.repetitions,
             raw_results=raw_results,
             error="; ".join(errors),
@@ -64,36 +65,37 @@ def evaluate_candidate(
         valid=valid,
         metrics=metrics,
         feedback=feedback,
-        command=rendered,
+        command=command.replace("{candidate_dir}", str(candidate_dir)),
         repetitions=evaluation.repetitions,
         raw_results=raw_results,
         error=None,
     )
 
 
-def _run_once(command: str, cwd: Path, safety: Safety) -> tuple[dict[str, Any] | None, str | None]:
+def _run_once(command: str, candidate_dir: Path, safety: Safety) -> tuple[dict[str, Any] | None, str | None]:
     started = time.perf_counter()
     try:
-        argv = shlex.split(command)
+        argv = _build_argv(command, candidate_dir)
         if argv and argv[0] == "python":
             argv[0] = sys.executable
         completed = subprocess.run(
             argv,
-            cwd=cwd,
+            cwd=candidate_dir,
             text=True,
             capture_output=True,
             timeout=safety.timeout_seconds,
+            env=_safe_env(candidate_dir),
         )
     except subprocess.TimeoutExpired:
         return None, f"evaluator timed out after {safety.timeout_seconds}s"
 
     stdout = completed.stdout[-safety.max_output_bytes :]
     stderr = completed.stderr[-safety.max_output_bytes :]
-    if completed.returncode != 0:
-        return None, f"evaluator exited {completed.returncode}: {stderr.strip()}"
     try:
         parsed = json.loads(stdout)
     except json.JSONDecodeError as exc:
+        if completed.returncode != 0:
+            return None, f"evaluator exited {completed.returncode}: {stderr.strip()}"
         return None, f"evaluator did not emit JSON: {exc}"
     if not isinstance(parsed, dict):
         return None, "evaluator JSON must be an object"
@@ -105,9 +107,12 @@ def _run_once(command: str, cwd: Path, safety: Safety) -> tuple[dict[str, Any] |
     for key, value in metrics.items():
         if not isinstance(value, (int, float)):
             return None, f"metric {key} must be numeric"
+        if not math.isfinite(float(value)):
+            return None, f"metric {key} must be finite"
     parsed.setdefault("feedback", {})
     parsed.setdefault("timing", {})
     parsed["timing"]["runtime_seconds_observed"] = time.perf_counter() - started
+    parsed["timing"]["returncode"] = completed.returncode
     return parsed, None
 
 
@@ -117,3 +122,21 @@ def _aggregate_metrics(results: list[dict[str, Any]]) -> dict[str, float]:
         for key, value in result.get("metrics", {}).items():
             values.setdefault(key, []).append(float(value))
     return {key: float(statistics.median(items)) for key, items in values.items() if items}
+
+
+def _build_argv(command: str, candidate_dir: Path) -> list[str]:
+    return [token.replace("{candidate_dir}", str(candidate_dir)) for token in shlex.split(command)]
+
+
+def _safe_env(candidate_dir: Path) -> dict[str, str]:
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "HOME": str(candidate_dir),
+        "TMPDIR": str(candidate_dir / ".tmp"),
+        "AEVOLVE_CANDIDATE_DIR": str(candidate_dir),
+    }
+    pythonpath = os.environ.get("PYTHONPATH")
+    if pythonpath:
+        env["PYTHONPATH"] = pythonpath
+    (candidate_dir / ".tmp").mkdir(exist_ok=True)
+    return env
