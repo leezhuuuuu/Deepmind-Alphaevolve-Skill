@@ -78,7 +78,7 @@ Use bundled assets:
 8. Launch the runtime only when `aevolve_runtime` exists or the user asks you to scaffold it:
 
    ```bash
-   python .agents/skills/alphaevolve/scripts/aevolve_run.py --task .alphaevolve/task.yaml
+   python .agents/skills/alphaevolve/scripts/aevolve_run.py --task .alphaevolve/task.yaml --patch-dir <candidate-patches>
    ```
 
 9. Monitor structured state, not free-form logs:
@@ -95,12 +95,28 @@ Use bundled assets:
 Expect a runtime command shaped like:
 
 ```bash
-python -m aevolve_runtime.cli run --task .alphaevolve/task.yaml
-python -m aevolve_runtime.cli status --run-id <run-id>
-python -m aevolve_runtime.cli review --run-id <run-id>
+python -m aevolve_runtime.cli validate --task .alphaevolve/task.yaml
+python -m aevolve_runtime.cli run --task .alphaevolve/task.yaml --patch-dir <candidate-patches>
+python -m aevolve_runtime.cli status --run-dir .alphaevolve/runs/<run-id>
+python -m aevolve_runtime.cli review --run-dir .alphaevolve/runs/<run-id>
 ```
 
 If the runtime is missing, explain that the skill is installed but the execution plane still needs to be scaffolded. Offer to create `aevolve_runtime/` as a separate implementation task.
+
+## Local Smoke Test
+
+When working in this repository, verify the skill/runtime bridge with the bundled toy benchmark:
+
+```bash
+python .agents/skills/alphaevolve/scripts/aevolve_run.py \
+  --task examples/toy_solver/task.yaml \
+  --patch-dir examples/toy_solver/patches \
+  --run-id skill-smoke
+python .agents/skills/alphaevolve/scripts/aevolve_status.py --run-dir .alphaevolve/runs/skill-smoke
+python .agents/skills/alphaevolve/scripts/aevolve_review.py --run-dir .alphaevolve/runs/skill-smoke
+```
+
+Remove `.alphaevolve/runs/skill-smoke` after the check unless the user wants to inspect artifacts.
 
 ## Definition Of Done
 

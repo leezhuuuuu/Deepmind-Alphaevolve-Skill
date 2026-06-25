@@ -52,6 +52,7 @@ The runtime should write structured status:
 
 For MVP runs, prefer:
 
+- Local patch files passed through `--patch` or `--patch-dir` before enabling live model generation.
 - `top-k` elite retention.
 - Diversity sampling across metric profiles and changed files.
 - Failed-case summaries as negative feedback, without hidden-test leakage.

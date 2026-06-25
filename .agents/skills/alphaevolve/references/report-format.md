@@ -22,6 +22,7 @@ Include:
 - `candidate_id`
 - parent IDs
 - model or adapter used
+- patch source, such as local patch file or model-generated diff
 - patch mode
 - metrics table
 - evaluator commands used

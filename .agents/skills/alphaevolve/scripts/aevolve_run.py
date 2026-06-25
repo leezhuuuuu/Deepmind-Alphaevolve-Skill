@@ -14,15 +14,14 @@ from aevolve_common import default_task_path, repo_root
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task", default=None, help="TaskSpec path")
-    parser.add_argument("runtime_args", nargs="*", help="Additional args passed to aevolve_runtime.cli")
-    args = parser.parse_args()
+    args, runtime_args = parser.parse_known_args()
 
     task_path = Path(args.task).resolve() if args.task else default_task_path()
     if not task_path.exists():
         print(f"TaskSpec not found: {task_path}", file=sys.stderr)
         return 2
 
-    command = [sys.executable, "-m", "aevolve_runtime.cli", "run", "--task", str(task_path), *args.runtime_args]
+    command = [sys.executable, "-m", "aevolve_runtime.cli", "run", "--task", str(task_path), *runtime_args]
     print("Delegating to runtime:")
     print(" ".join(command))
     completed = subprocess.run(command, cwd=repo_root())
