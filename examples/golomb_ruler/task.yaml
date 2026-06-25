@@ -1,0 +1,63 @@
+target:
+  files:
+    - examples/golomb_ruler/src/ruler.py
+  evolve_regions:
+    - name: construct_marks
+      file: examples/golomb_ruler/src/ruler.py
+      marker_start: "# EVOLVE-BLOCK-START"
+      marker_end: "# EVOLVE-BLOCK-END"
+
+objectives:
+  correctness:
+    direction: maximize
+    hard_constraint: true
+    minimum: 1.0
+  length:
+    direction: minimize
+  collision_count:
+    direction: minimize
+
+budget:
+  candidates: 12
+  parallelism: 4
+  max_wall_seconds: 600
+  stop_after_no_improvement: 6
+
+evaluation:
+  public_command: "python examples/golomb_ruler/evaluator/public.py --candidate {candidate_dir}"
+  hidden_command: ""
+  final_command: ""
+  repetitions: 1
+  metric_schema_version: 1
+
+safety:
+  network: false
+  source_readonly: true
+  candidate_tmpfs: false
+  max_memory_mb: 512
+  timeout_seconds: 10
+  max_output_bytes: 200000
+
+runtime:
+  output_dir: ".alphaevolve/runs"
+  database: "sqlite"
+  patch_mode: "search_replace"
+  model_adapter: "openai-compatible"
+
+generation:
+  mode: "api"
+  batch_size: 8
+  max_prompt_chars: 1000000
+  api:
+    provider: "deepseek"
+    base_url: "https://api.deepseek.com"
+    api_key_env: "DEEPSEEK_API_KEY"
+    model: "deepseek-v4-pro"
+    temperature: 0.8
+    max_tokens: 384000
+    timeout_seconds: 90
+    thinking: "disabled"
+  agent:
+    backend: "codex"
+    prompt_dir: ".alphaevolve/agent-prompts"
+    max_agents: 2
