@@ -168,6 +168,9 @@ def _extract_patch_text(content: str, task: TaskSpec) -> str:
         if line.strip() == ">>>>>>> REPLACE":
             last_replace = index
     if first_search is None or last_replace is None or last_replace < first_search:
+        labeled = _coerce_labeled_search_replace(stripped, task)
+        if labeled:
+            return labeled
         coerced = _coerce_code_to_replace_patch(stripped, task)
         return coerced or stripped
 
@@ -198,6 +201,35 @@ def _coerce_code_to_replace_patch(content: str, task: TaskSpec) -> str | None:
         f"{_ensure_trailing_newline(current)}"
         "=======\n"
         f"{_ensure_trailing_newline(code)}"
+        ">>>>>>> REPLACE"
+    )
+
+
+def _coerce_labeled_search_replace(content: str, task: TaskSpec) -> str | None:
+    file_name, payload = _split_file_payload(content, task)
+    payload = _extract_code_payload(payload)
+    lines = payload.splitlines(keepends=True)
+    search_index = None
+    replace_index = None
+    for index, line in enumerate(lines):
+        label = line.strip().rstrip(":").upper()
+        if label == "SEARCH" and search_index is None:
+            search_index = index
+        elif label == "REPLACE" and search_index is not None:
+            replace_index = index
+            break
+    if search_index is None or replace_index is None:
+        return None
+    search = "".join(lines[search_index + 1 : replace_index])
+    replace = "".join(lines[replace_index + 1 :])
+    if not search.strip() or not replace.strip():
+        return None
+    return (
+        f"FILE: {file_name}\n"
+        "<<<<<<< SEARCH\n"
+        f"{_ensure_trailing_newline(search)}"
+        "=======\n"
+        f"{_ensure_trailing_newline(replace)}"
         ">>>>>>> REPLACE"
     )
 

@@ -302,6 +302,49 @@ class RuntimeMvpTests(unittest.TestCase):
                 thread.join(timeout=5)
             self.assertTrue(patch.startswith("### FILE: src/solver.py"))
 
+    def test_openai_compatible_generator_converts_labeled_search_replace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_project(root)
+            _FakeCompletionHandler.response_content = (
+                "FILE: src/solver.py\n"
+                "SEARCH:\n"
+                "def solve():\n"
+                "    return 1\n"
+                "REPLACE:\n"
+                "def solve():\n"
+                "    return 2\n"
+            )
+            server = HTTPServer(("127.0.0.1", 0), _FakeCompletionHandler)
+            _FakeCompletionHandler.requests = []
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                task_text = (root / "task.yaml").read_text(encoding="utf-8")
+                (root / "task.yaml").write_text(
+                    task_text
+                    + "generation:\n"
+                    + "  mode: api\n"
+                    + "  api:\n"
+                    + f"    base_url: \"http://127.0.0.1:{server.server_port}\"\n"
+                    + "    api_key_env: FAKE_DEEPSEEK_KEY\n"
+                    + "    model: deepseek-v4-flash\n",
+                    encoding="utf-8",
+                )
+                os.environ["FAKE_DEEPSEEK_KEY"] = "unit-secret"
+                try:
+                    task = load_task(root / "task.yaml", root=root)
+                    patch = OpenAICompatibleGenerator().generate(task, count=1)[0].patch_text
+                finally:
+                    os.environ.pop("FAKE_DEEPSEEK_KEY", None)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+            replacements = parse_patch(patch)
+            self.assertEqual(replacements[0].search, "def solve():\n    return 1\n")
+            self.assertEqual(replacements[0].replace, "def solve():\n    return 2\n")
+
     def test_evaluator_handles_spaces_and_fails_closed_on_nonzero_json_exit(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aevolve space ") as tmp:
             root = Path(tmp)
