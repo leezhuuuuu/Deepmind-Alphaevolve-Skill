@@ -15,6 +15,7 @@ class TaskSpecError(ValueError):
 
 DEEPSEEK_CONTEXT_TOKENS = 1_000_000
 DEEPSEEK_MAX_OUTPUT_TOKENS = 384_000
+DEEPSEEK_REASONING_EFFORT = "max"
 
 
 @dataclass(frozen=True)
@@ -85,8 +86,8 @@ class GenerationApiConfig:
     temperature: float = 0.7
     max_tokens: int = DEEPSEEK_MAX_OUTPUT_TOKENS
     timeout_seconds: int = 90
-    thinking: str = "disabled"
-    reasoning_effort: str | None = None
+    thinking: str = "enabled"
+    reasoning_effort: str | None = DEEPSEEK_REASONING_EFFORT
 
 
 @dataclass(frozen=True)
@@ -285,8 +286,8 @@ def _parse_generation(data: Any) -> GenerationConfig:
     base_url = str(api_data.get("base_url") or "https://api.deepseek.com").rstrip("/")
     api_key_env = str(api_data.get("api_key_env") or "DEEPSEEK_API_KEY")
     model = str(api_data.get("model") or "deepseek-v4-flash")
-    thinking = str(api_data.get("thinking") or "disabled")
-    reasoning_effort = api_data.get("reasoning_effort")
+    thinking = str(api_data.get("thinking") or "enabled")
+    reasoning_effort = api_data.get("reasoning_effort", DEEPSEEK_REASONING_EFFORT)
     if reasoning_effort is not None:
         reasoning_effort = str(reasoning_effort)
     if not provider.strip():
@@ -299,6 +300,8 @@ def _parse_generation(data: Any) -> GenerationConfig:
         raise TaskSpecError("generation.api.model must be non-empty")
     if thinking not in {"enabled", "disabled"}:
         raise TaskSpecError("generation.api.thinking must be enabled or disabled")
+    if reasoning_effort is not None and reasoning_effort not in {"high", "max", "low", "medium", "xhigh"}:
+        raise TaskSpecError("generation.api.reasoning_effort must be high, max, or a DeepSeek-compatible alias")
 
     agent_data = generation_data.get("agent") or {}
     agent_data = _require_mapping(agent_data, "generation.agent")

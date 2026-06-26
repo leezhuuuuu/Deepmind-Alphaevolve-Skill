@@ -72,14 +72,15 @@ generation:
     model: "deepseek-v4-flash"
     temperature: 0.7
     max_tokens: 384000
-    thinking: "disabled"
+    thinking: "enabled"
+    reasoning_effort: "max"
   agent:
     backend: "codex"
     prompt_dir: ".alphaevolve/agent-prompts"
     max_agents: 2
 ```
 
-The DeepSeek defaults mirror the current documented `deepseek-v4-flash` / `deepseek-v4-pro` limits: 1M context length and 384K maximum output.
+The DeepSeek defaults mirror the current documented `deepseek-v4-flash` / `deepseek-v4-pro` limits: 1M context length, 384K maximum output, thinking mode enabled, and `reasoning_effort: max`.
 
 ## Authoring Rules
 

@@ -151,7 +151,8 @@ class RuntimeMvpTests(unittest.TestCase):
                 + "    base_url: \"https://api.deepseek.com\"\n"
                 + "    api_key_env: DEEPSEEK_API_KEY\n"
                 + "    model: deepseek-v4-flash\n"
-                + "    thinking: disabled\n",
+                + "    thinking: enabled\n"
+                + "    reasoning_effort: max\n",
                 encoding="utf-8",
             )
             task = load_task(root / "task.yaml", root=root)
@@ -160,6 +161,8 @@ class RuntimeMvpTests(unittest.TestCase):
             self.assertEqual(task.generation.max_prompt_chars, 1_000_000)
             self.assertEqual(task.generation.api.model, "deepseek-v4-flash")
             self.assertEqual(task.generation.api.max_tokens, 384_000)
+            self.assertEqual(task.generation.api.thinking, "enabled")
+            self.assertEqual(task.generation.api.reasoning_effort, "max")
 
             bundle = build_mutation_prompt(task, candidate_index=7)
             self.assertIn("SEARCH/REPLACE", bundle.system)
@@ -210,7 +213,8 @@ class RuntimeMvpTests(unittest.TestCase):
                     + f"    base_url: \"http://127.0.0.1:{server.server_port}\"\n"
                     + "    api_key_env: FAKE_DEEPSEEK_KEY\n"
                     + "    model: deepseek-v4-flash\n"
-                    + "    thinking: disabled\n",
+                    + "    thinking: enabled\n"
+                    + "    reasoning_effort: max\n",
                     encoding="utf-8",
                 )
                 os.environ["FAKE_DEEPSEEK_KEY"] = "unit-secret"
@@ -233,7 +237,8 @@ class RuntimeMvpTests(unittest.TestCase):
             self.assertEqual(first_request["authorization"], "Bearer unit-secret")
             self.assertEqual(first_request["body"]["model"], "deepseek-v4-flash")
             self.assertEqual(first_request["body"]["max_tokens"], 384_000)
-            self.assertEqual(first_request["body"]["thinking"]["type"], "disabled")
+            self.assertEqual(first_request["body"]["thinking"]["type"], "enabled")
+            self.assertEqual(first_request["body"]["reasoning_effort"], "max")
             self.assertIn("src/solver.py", first_request["body"]["messages"][1]["content"])
 
     def test_openai_compatible_generator_rejects_untrusted_external_target(self) -> None:

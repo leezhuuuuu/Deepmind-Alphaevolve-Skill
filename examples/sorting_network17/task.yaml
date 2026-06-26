@@ -58,7 +58,8 @@ generation:
     temperature: 0.9
     max_tokens: 384000
     timeout_seconds: 120
-    thinking: "disabled"
+    thinking: "enabled"
+    reasoning_effort: "max"
   agent:
     backend: "codex"
     prompt_dir: ".alphaevolve/agent-prompts"
